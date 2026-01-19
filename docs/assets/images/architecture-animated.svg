@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 380">
+  <defs>
+    <linearGradient id="primaryGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="greenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#10b981"/>
+      <stop offset="100%" style="stop-color:#34d399"/>
+    </linearGradient>
+    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0ea5e9"/>
+      <stop offset="100%" style="stop-color:#38bdf8"/>
+    </linearGradient>
+    <linearGradient id="amberGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f59e0b"/>
+      <stop offset="100%" style="stop-color:#fbbf24"/>
+    </linearGradient>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f172a"/>
+      <stop offset="100%" style="stop-color:#1e293b"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="softGlow">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <style>
+    .label { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-weight: 600; }
+    .sublabel { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-weight: 500; }
+    .feature { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 10px; fill: #94a3b8; }
+
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+    @keyframes flow1 { 0% { transform: translateX(0); opacity: 0; } 5% { opacity: 1; } 95% { opacity: 1; } 100% { transform: translateX(155px); opacity: 0; } }
+    @keyframes flow2 { 0% { transform: translateX(0); opacity: 0; } 5% { opacity: 1; } 95% { opacity: 1; } 100% { transform: translateX(120px); opacity: 0; } }
+    @keyframes flowUp { 0% { transform: translate(0, 0); opacity: 0; } 5% { opacity: 1; } 95% { opacity: 1; } 100% { transform: translate(120px, -70px); opacity: 0; } }
+    @keyframes flowDown { 0% { transform: translate(0, 0); opacity: 0; } 5% { opacity: 1; } 95% { opacity: 1; } 100% { transform: translate(120px, 70px); opacity: 0; } }
+
+    .packet-in1 { animation: flow1 0.5s linear infinite; }
+    .packet-in2 { animation: flow1 0.5s linear infinite 0.15s; }
+    .packet-in3 { animation: flow1 0.5s linear infinite 0.3s; }
+    .packet-out1 { animation: flowUp 0.4s linear infinite 0.1s; }
+    .packet-out2 { animation: flow2 0.4s linear infinite 0.2s; }
+    .packet-out3 { animation: flowDown 0.4s linear infinite 0.3s; }
+    .pulse { animation: pulse 1.5s ease-in-out infinite; }
+  </style>
+
+  <!-- Background -->
+  <rect width="900" height="380" rx="16" fill="url(#bgGrad)"/>
+
+  <!-- Subtle grid pattern -->
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#334155" stroke-width="0.5" opacity="0.3"/>
+  </pattern>
+  <rect width="900" height="380" fill="url(#grid)" rx="16"/>
+
+  <!-- Glow effects behind main elements -->
+  <ellipse cx="170" cy="190" rx="60" ry="80" fill="#6366f1" opacity="0.1" filter="url(#softGlow)"/>
+  <ellipse cx="450" cy="190" rx="120" ry="100" fill="#8b5cf6" opacity="0.15" filter="url(#softGlow)"/>
+  <ellipse cx="730" cy="190" rx="80" ry="120" fill="#0ea5e9" opacity="0.1" filter="url(#softGlow)"/>
+
+  <!-- Connection lines with gradient -->
+  <line x1="220" y1="190" x2="300" y2="190" stroke="url(#primaryGrad)" stroke-width="2" opacity="0.6"/>
+  <line x1="600" y1="110" x2="660" y2="110" stroke="url(#greenGrad)" stroke-width="2" opacity="0.6"/>
+  <line x1="600" y1="190" x2="660" y2="190" stroke="url(#blueGrad)" stroke-width="2" opacity="0.6"/>
+  <line x1="600" y1="270" x2="660" y2="270" stroke="url(#amberGrad)" stroke-width="2" opacity="0.6"/>
+
+  <!-- Clients -->
+  <g class="pulse">
+    <rect x="70" y="120" width="150" height="140" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <rect x="70" y="120" width="150" height="36" rx="12" fill="url(#primaryGrad)"/>
+    <rect x="70" y="144" width="150" height="12" fill="url(#primaryGrad)"/>
+    <text x="145" y="145" text-anchor="middle" class="label" font-size="14" fill="white">Clients</text>
+    <text x="145" y="178" text-anchor="middle" class="feature">Your Applications</text>
+    <text x="145" y="194" text-anchor="middle" class="feature">AI Agents</text>
+    <text x="145" y="210" text-anchor="middle" class="feature">Chat Interfaces</text>
+    <text x="145" y="226" text-anchor="middle" class="feature">API Services</text>
+  </g>
+
+  <!-- SMG Gateway -->
+  <rect x="300" y="60" width="300" height="260" rx="16" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+  <rect x="300" y="60" width="300" height="44" rx="16" fill="url(#primaryGrad)"/>
+  <rect x="300" y="88" width="300" height="16" fill="url(#primaryGrad)"/>
+  <text x="450" y="90" text-anchor="middle" class="label" font-size="16" fill="white">SMG Gateway</text>
+
+  <!-- Gateway features -->
+  <g>
+    <rect x="320" y="120" width="260" height="28" rx="8" fill="#334155"/>
+    <circle cx="338" cy="134" r="4" fill="#10b981"/>
+    <text x="352" y="139" class="sublabel" font-size="11" fill="#e2e8f0">Tokenization &amp; Caching</text>
+  </g>
+  <g>
+    <rect x="320" y="154" width="260" height="28" rx="8" fill="#334155"/>
+    <circle cx="338" cy="168" r="4" fill="#0ea5e9"/>
+    <text x="352" y="173" class="sublabel" font-size="11" fill="#e2e8f0">Chat Templates &amp; Routing</text>
+  </g>
+  <g>
+    <rect x="320" y="188" width="260" height="28" rx="8" fill="#334155"/>
+    <circle cx="338" cy="202" r="4" fill="#8b5cf6"/>
+    <text x="352" y="207" class="sublabel" font-size="11" fill="#e2e8f0">Tool Parsing &amp; MCP Loops</text>
+  </g>
+  <g>
+    <rect x="320" y="222" width="260" height="28" rx="8" fill="#334155"/>
+    <circle cx="338" cy="236" r="4" fill="#f59e0b"/>
+    <text x="352" y="241" class="sublabel" font-size="11" fill="#e2e8f0">Load Balancing &amp; PD Routing</text>
+  </g>
+  <g>
+    <rect x="320" y="256" width="260" height="28" rx="8" fill="#334155"/>
+    <circle cx="338" cy="270" r="4" fill="#ef4444"/>
+    <text x="352" y="275" class="sublabel" font-size="11" fill="#e2e8f0">Circuit Breakers &amp; Rate Limits</text>
+  </g>
+  <g>
+    <rect x="320" y="290" width="260" height="22" rx="8" fill="#334155"/>
+    <circle cx="338" cy="301" r="4" fill="#a855f7"/>
+    <text x="352" y="306" class="sublabel" font-size="11" fill="#e2e8f0">Reasoning &amp; Detokenization</text>
+  </g>
+
+  <!-- gRPC Workers -->
+  <rect x="660" y="65" width="170" height="90" rx="12" fill="#1e293b" stroke="#10b981" stroke-width="2"/>
+  <rect x="660" y="65" width="170" height="26" rx="12" fill="url(#greenGrad)"/>
+  <rect x="660" y="79" width="170" height="12" fill="url(#greenGrad)"/>
+  <text x="745" y="84" text-anchor="middle" class="label" font-size="11" fill="white">gRPC Workers</text>
+  <text x="745" y="108" text-anchor="middle" class="feature">vLLM / SGLang / TRT-LLM</text>
+  <text x="745" y="122" text-anchor="middle" class="feature">Raw Inference + PD Support</text>
+  <text x="745" y="136" text-anchor="middle" class="feature">Maximum Performance</text>
+
+  <!-- HTTP Workers -->
+  <rect x="660" y="165" width="170" height="75" rx="12" fill="#1e293b" stroke="#0ea5e9" stroke-width="2"/>
+  <rect x="660" y="165" width="170" height="26" rx="12" fill="url(#blueGrad)"/>
+  <rect x="660" y="179" width="170" height="12" fill="url(#blueGrad)"/>
+  <text x="745" y="184" text-anchor="middle" class="label" font-size="11" fill="white">HTTP Workers</text>
+  <text x="745" y="206" text-anchor="middle" class="feature">vLLM / SGLang / TRT-LLM</text>
+  <text x="745" y="220" text-anchor="middle" class="feature">OpenAI-Compatible Servers</text>
+
+  <!-- External APIs -->
+  <rect x="660" y="250" width="170" height="75" rx="12" fill="#1e293b" stroke="#f59e0b" stroke-width="2"/>
+  <rect x="660" y="250" width="170" height="26" rx="12" fill="url(#amberGrad)"/>
+  <rect x="660" y="264" width="170" height="12" fill="url(#amberGrad)"/>
+  <text x="745" y="269" text-anchor="middle" class="label" font-size="11" fill="#1e293b">External APIs</text>
+  <text x="745" y="291" text-anchor="middle" class="feature">OpenAI / Claude / Gemini</text>
+  <text x="745" y="305" text-anchor="middle" class="feature">Groq / Together / Bedrock</text>
+
+  <!-- Animated packets - Client to Gateway (FAST) -->
+  <circle cx="230" cy="190" r="5" fill="#a78bfa" class="packet-in1" filter="url(#glow)"/>
+  <circle cx="230" cy="190" r="5" fill="#818cf8" class="packet-in2" filter="url(#glow)"/>
+  <circle cx="230" cy="190" r="5" fill="#c4b5fd" class="packet-in3" filter="url(#glow)"/>
+
+  <!-- Animated packets - Gateway to Workers (FAST) -->
+  <circle cx="610" cy="190" r="4" fill="#34d399" class="packet-out1" filter="url(#glow)"/>
+  <circle cx="610" cy="190" r="4" fill="#38bdf8" class="packet-out2" filter="url(#glow)"/>
+  <circle cx="610" cy="190" r="4" fill="#fbbf24" class="packet-out3" filter="url(#glow)"/>
+
+  <!-- Bottom tagline -->
+  <text x="450" y="360" text-anchor="middle" class="sublabel" font-size="13" fill="#64748b">One API  •  Any Backend  •  Enterprise Reliability</text>
+</svg>
