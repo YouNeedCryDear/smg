@@ -64,16 +64,17 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use kv_index::{TokenTree, Tree};
 use rand::Rng;
+use smg_mesh::{
+    tree_ops::{TreeInsertOp, TreeOperation},
+    OptionalMeshSyncManager,
+};
 use tracing::{debug, warn};
 
 use super::{
     get_healthy_worker_indices, normalize_model_key, utils::PeriodicTask, CacheAwareConfig,
     LoadBalancingPolicy, SelectWorkerInfo,
 };
-use crate::{
-    core::{Worker, UNKNOWN_MODEL_ID},
-    mesh::{tree_ops::TreeOperation, OptionalMeshSyncManager},
-};
+use crate::core::{Worker, UNKNOWN_MODEL_ID};
 
 /// Cache-aware routing policy
 ///
@@ -392,7 +393,6 @@ impl CacheAwarePolicy {
 
                 // Sync insert operation to mesh if enabled (only for text operations)
                 if let Some(ref mesh_sync) = self.mesh_sync {
-                    use crate::mesh::tree_ops::TreeInsertOp;
                     let op = TreeOperation::Insert(TreeInsertOp {
                         text: text.to_string(),
                         tenant: worker_url.to_string(),
@@ -578,7 +578,6 @@ impl CacheAwarePolicy {
 
                 // Sync insert operation to mesh if enabled (only for text operations)
                 if let Some(ref mesh_sync) = self.mesh_sync {
-                    use crate::mesh::tree_ops::TreeInsertOp;
                     let op = TreeOperation::Insert(TreeInsertOp {
                         text: text.to_string(),
                         tenant: workers[idx].url().to_string(),
@@ -777,7 +776,7 @@ mod tests {
     fn test_cache_aware_sync_tree_operation_to_mesh() {
         use std::sync::Arc;
 
-        use crate::mesh::{stores::StateStores, sync::MeshSyncManager};
+        use smg_mesh::{stores::StateStores, sync::MeshSyncManager};
 
         let stores = Arc::new(StateStores::with_self_name("node1".to_string()));
         let mesh_sync = Arc::new(MeshSyncManager::new(stores, "node1".to_string()));
@@ -820,7 +819,7 @@ mod tests {
     fn test_cache_aware_restore_tree_state_from_mesh() {
         use std::sync::Arc;
 
-        use crate::mesh::{
+        use smg_mesh::{
             stores::StateStores,
             sync::MeshSyncManager,
             tree_ops::{TreeInsertOp, TreeOperation},
@@ -879,7 +878,7 @@ mod tests {
     fn test_cache_aware_apply_remote_tree_operation() {
         use std::sync::Arc;
 
-        use crate::mesh::{
+        use smg_mesh::{
             stores::StateStores,
             sync::MeshSyncManager,
             tree_ops::{TreeInsertOp, TreeOperation},
@@ -912,7 +911,7 @@ mod tests {
     fn test_cache_aware_multi_node_consistency() {
         use std::sync::Arc;
 
-        use crate::mesh::{
+        use smg_mesh::{
             stores::StateStores,
             sync::MeshSyncManager,
             tree_ops::{TreeInsertOp, TreeOperation},
