@@ -1,10 +1,6 @@
 # Label configuration for actions/labeler
 # See: https://github.com/actions/labeler
 
-rust:
-  - changed-files:
-      - any-glob-to-any-file: 'model_gateway/src/**/*.rs'
-
 python-bindings:
   - changed-files:
       - any-glob-to-any-file: 'bindings/python/**/*'
@@ -14,6 +10,7 @@ documentation:
       - any-glob-to-any-file:
           - '**/*.md'
           - 'docs/**/*'
+          - 'mkdocs.yml'
 
 dependencies:
   - changed-files:
@@ -26,10 +23,15 @@ ci:
   - changed-files:
       - any-glob-to-any-file: '.github/**/*'
 
-grpc:
+docker:
   - changed-files:
       - any-glob-to-any-file:
-          - 'grpc_client/**/*'
+          - 'docker/**/*'
+          - '**/Dockerfile'
+
+grpc:
+  - changed-files:
+      - any-glob-to-any-file: 'grpc_client/**/*'
 
 mcp:
   - changed-files:
@@ -43,11 +45,39 @@ tool-parser:
   - changed-files:
       - any-glob-to-any-file: 'tool_parser/**/*'
 
+reasoning-parser:
+  - changed-files:
+      - any-glob-to-any-file: 'reasoning_parser/**/*'
+
 wasm:
   - changed-files:
       - any-glob-to-any-file:
           - 'wasm/**/*'
           - 'model_gateway/src/wasm/**/*'
+
+auth:
+  - changed-files:
+      - any-glob-to-any-file: 'auth/**/*'
+
+data-connector:
+  - changed-files:
+      - any-glob-to-any-file: 'data_connector/**/*'
+
+multimodal:
+  - changed-files:
+      - any-glob-to-any-file: 'multimodal/**/*'
+
+protocols:
+  - changed-files:
+      - any-glob-to-any-file: 'protocols/**/*'
+
+workflow:
+  - changed-files:
+      - any-glob-to-any-file: 'workflow/**/*'
+
+model-gateway:
+  - changed-files:
+      - any-glob-to-any-file: 'model_gateway/**/*'
 
 benchmarks:
   - changed-files:
@@ -56,5 +86,5 @@ benchmarks:
 tests:
   - changed-files:
       - any-glob-to-any-file:
-          - 'model_gateway/tests/**/*'
           - 'e2e_test/**/*'
+          - '**/tests/**/*'
