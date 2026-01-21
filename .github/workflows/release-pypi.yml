@@ -8,10 +8,15 @@ on:
       - bindings/python/pyproject.toml
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: build on ${{ matrix.platform || matrix.os }} (${{ matrix.target }} - ${{ matrix.manylinux || 'auto' }})
     runs-on: ${{ matrix.os }}-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -111,6 +116,8 @@ jobs:
   build-sdist:
     name: Build SDist
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -139,6 +146,7 @@ jobs:
     if: github.repository == 'lightseekorg/smg'  # Ensure this job only runs for the lightseekorg/smg repository
     needs: [build, build-sdist]
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - uses: actions/download-artifact@v4
         with:
