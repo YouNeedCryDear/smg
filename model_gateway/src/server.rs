@@ -17,8 +17,8 @@ use rustls::crypto::ring;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use smg_mesh::{
-    partition::PartitionDetector, rate_limit_window::RateLimitWindow, service::MeshServerBuilder,
-    MeshServerConfig, MeshServerHandler, MeshSyncManager, StateStores,
+    MeshServerBuilder, MeshServerConfig, MeshServerHandler, MeshSyncManager, PartitionDetector,
+    RateLimitWindow, StateStores,
 };
 use tokio::{signal, spawn};
 use tracing::{debug, error, info, warn, Level};

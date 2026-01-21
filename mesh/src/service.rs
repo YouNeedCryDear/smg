@@ -13,7 +13,7 @@ use tracing as log;
 
 pub mod gossip {
     #![allow(unused_qualifications)]
-    tonic::include_proto!("sglang.mesh.gossip");
+    tonic::include_proto!("mesh.gossip");
 }
 use gossip::{
     gossip_client, gossip_message, GossipMessage, NodeState, NodeStatus, NodeUpdate, Ping,
