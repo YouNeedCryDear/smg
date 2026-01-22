@@ -10,5 +10,5 @@ pub use manager::{
     McpApprovalRequest, McpApprovalResponse,
 };
 pub use policy::{
-    PolicyConfig, PolicyDecision, PolicyEngine, PolicyRule, ServerPolicy, TrustLevel,
+    PolicyDecision, PolicyEngine, PolicyRule, RuleCondition, RulePattern, ServerPolicy, TrustLevel,
 };

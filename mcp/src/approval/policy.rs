@@ -4,12 +4,12 @@ use std::{collections::HashMap, sync::Arc};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 use super::audit::{AuditLog, DecisionResult, DecisionSource};
 use crate::{
-    annotations::{AnnotationType, ToolAnnotations},
-    inventory::QualifiedToolName,
-    tenant::TenantContext,
+    annotations::AnnotationType, inventory::QualifiedToolName, tenant::TenantContext,
+    ToolAnnotations,
 };
 
 /// Result of a policy evaluation.
@@ -199,18 +199,6 @@ impl PolicyRule {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct PolicyConfig {
-    #[serde(default = "default_policy")]
-    pub default_policy: PolicyDecision,
-    #[serde(default)]
-    pub server_policies: HashMap<String, ServerPolicy>,
-}
-
-fn default_policy() -> PolicyDecision {
-    PolicyDecision::Allow
-}
-
 /// Policy-based approval handler for MCP tools.
 pub struct PolicyEngine {
     default_policy: PolicyDecision,
@@ -225,16 +213,6 @@ impl PolicyEngine {
         Self {
             default_policy: PolicyDecision::Allow,
             server_policies: HashMap::new(),
-            tool_policies: HashMap::new(),
-            rules: Vec::new(),
-            audit_log,
-        }
-    }
-
-    pub fn from_config(config: &PolicyConfig, audit_log: Arc<AuditLog>) -> Self {
-        Self {
-            default_policy: config.default_policy.clone(),
-            server_policies: config.server_policies.clone(),
             tool_policies: HashMap::new(),
             rules: Vec::new(),
             audit_log,
@@ -416,6 +394,79 @@ impl Default for PolicyEngine {
             RuleCondition::HasAnnotation(AnnotationType::ReadOnly),
             PolicyDecision::Allow,
         ))
+    }
+}
+
+// Conversions from config types
+use crate::core::config::{
+    PolicyConfig, PolicyDecisionConfig, ServerPolicyConfig, TrustLevelConfig,
+};
+
+impl From<PolicyDecisionConfig> for PolicyDecision {
+    fn from(config: PolicyDecisionConfig) -> Self {
+        match config {
+            PolicyDecisionConfig::Allow => PolicyDecision::Allow,
+            PolicyDecisionConfig::Deny => PolicyDecision::Deny,
+            PolicyDecisionConfig::DenyWithReason(reason) => {
+                PolicyDecision::DenyWithReason(Arc::from(reason))
+            }
+        }
+    }
+}
+
+impl From<TrustLevelConfig> for TrustLevel {
+    fn from(config: TrustLevelConfig) -> Self {
+        match config {
+            TrustLevelConfig::Trusted => TrustLevel::Trusted,
+            TrustLevelConfig::Standard => TrustLevel::Standard,
+            TrustLevelConfig::Untrusted => TrustLevel::Untrusted,
+            TrustLevelConfig::Sandboxed => TrustLevel::Sandboxed,
+        }
+    }
+}
+
+impl From<ServerPolicyConfig> for ServerPolicy {
+    fn from(config: ServerPolicyConfig) -> Self {
+        Self {
+            default: config.default.into(),
+            trust_level: config.trust_level.into(),
+        }
+    }
+}
+
+impl PolicyEngine {
+    /// Create a PolicyEngine from YAML configuration.
+    pub fn from_yaml_config(config: &PolicyConfig, audit_log: Arc<AuditLog>) -> Self {
+        let mut engine = Self {
+            default_policy: config.default.clone().into(),
+            server_policies: config
+                .servers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone().into()))
+                .collect(),
+            tool_policies: HashMap::new(),
+            rules: Vec::new(),
+            audit_log,
+        };
+
+        // Add explicit tool policies
+        for (qualified_str, decision) in &config.tools {
+            if let Some((server, tool)) = qualified_str.split_once(':') {
+                engine.tool_policies.insert(
+                    QualifiedToolName::new(server, tool),
+                    ToolPolicy {
+                        decision: decision.clone().into(),
+                    },
+                );
+            } else {
+                warn!(
+                    "Invalid tool policy key '{}': expected 'server:tool' format",
+                    qualified_str
+                );
+            }
+        }
+
+        engine
     }
 }
 
