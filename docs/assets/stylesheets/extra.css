@@ -1,34 +1,42 @@
-/* SMG Documentation Theme - Dark Mode First */
+/* SMG Documentation Theme - Gradient Mesh Edition */
 
 :root {
-  /* Brand Colors */
-  --smg-primary: #818cf8;
-  --smg-primary-light: #a5b4fc;
-  --smg-primary-dark: #6366f1;
-  --smg-secondary: #38bdf8;
-  --smg-accent: #34d399;
+  /* Brand Colors - Vibrant */
+  --smg-primary: #8b5cf6;
+  --smg-primary-light: #a78bfa;
+  --smg-primary-dark: #7c3aed;
+  --smg-secondary: #06b6d4;
+  --smg-accent: #10b981;
+
+  /* Mesh Colors */
+  --mesh-purple: #8b5cf6;
+  --mesh-blue: #3b82f6;
+  --mesh-cyan: #06b6d4;
+  --mesh-pink: #ec4899;
+  --mesh-orange: #f97316;
 }
 
 /* Dark theme (default) */
 [data-md-color-scheme="slate"] {
-  --md-default-bg-color: #0f172a;
-  --md-default-bg-color--light: #1e293b;
-  --md-default-bg-color--lighter: #334155;
-  --md-default-bg-color--lightest: #475569;
-  --md-default-fg-color: #f1f5f9;
-  --md-default-fg-color--light: #cbd5e1;
-  --md-default-fg-color--lighter: #94a3b8;
-  --md-default-fg-color--lightest: #64748b;
+  --md-default-bg-color: #09090b;
+  --md-default-bg-color--light: #18181b;
+  --md-default-bg-color--lighter: #27272a;
+  --md-default-bg-color--lightest: #3f3f46;
+  --md-default-fg-color: #fafafa;
+  --md-default-fg-color--light: #d4d4d8;
+  --md-default-fg-color--lighter: #a1a1aa;
+  --md-default-fg-color--lightest: #71717a;
   --md-primary-fg-color: var(--smg-primary);
   --md-primary-fg-color--light: var(--smg-primary-light);
   --md-primary-fg-color--dark: var(--smg-primary-dark);
   --md-accent-fg-color: var(--smg-secondary);
-  --md-typeset-a-color: var(--smg-primary);
-  --md-code-bg-color: #1e293b;
-  --md-code-fg-color: #e2e8f0;
-  --md-footer-bg-color: #0f172a;
-  --md-footer-bg-color--dark: #020617;
+  --md-typeset-a-color: var(--smg-primary-light);
+  --md-code-bg-color: #18181b;
+  --md-code-fg-color: #e4e4e7;
+  --md-footer-bg-color: #09090b;
+  --md-footer-bg-color--dark: #000;
 }
+
 
 /* Light theme */
 [data-md-color-scheme="default"] {
@@ -45,84 +53,269 @@
 }
 
 .md-typeset h2 {
-  font-weight: 600;
-  margin-top: 2rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  font-weight: 700;
+  font-size: 1.75rem;
+  margin-top: 1.5rem;
+  padding-bottom: 0;
+  border-bottom: none;
+  letter-spacing: -0.02em;
+  display: inline-block;
+  position: relative;
 }
 
-/* Hero section */
+/* Glowing underline on section headers */
+.md-typeset h2::after {
+  content: "";
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  width: 60px;
+  height: 3px;
+  background: linear-gradient(90deg, var(--mesh-purple), var(--mesh-cyan));
+  border-radius: 2px;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.5);
+}
+
+/* Bold gradient dividers */
+.md-typeset hr {
+  border: none;
+  height: 2px;
+  margin: 4rem 0;
+  background: linear-gradient(90deg, var(--mesh-purple), var(--mesh-cyan), var(--mesh-blue));
+  opacity: 0.3;
+  border-radius: 1px;
+}
+
+/* ==============================================
+   HERO - Gradient Mesh Design
+   ============================================== */
+
 .md-typeset .hero {
+  position: relative;
   text-align: center;
-  padding: 3rem 1rem;
+  padding: 6rem 1rem 5rem;
   margin-bottom: 2rem;
+  overflow: hidden;
 }
 
+/* Gradient mesh blobs */
+.md-typeset .hero::before {
+  content: "";
+  position: absolute;
+  width: 150%;
+  height: 150%;
+  top: -40%;
+  left: -25%;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(139, 92, 246, 0.6) 0%, transparent 35%),
+    radial-gradient(circle at 80% 20%, rgba(59, 130, 246, 0.5) 0%, transparent 30%),
+    radial-gradient(circle at 70% 70%, rgba(6, 182, 212, 0.5) 0%, transparent 35%),
+    radial-gradient(circle at 30% 60%, rgba(236, 72, 153, 0.4) 0%, transparent 25%);
+  filter: blur(80px);
+  opacity: 0.6;
+  z-index: 0;
+  animation: mesh-shift 15s ease-in-out infinite alternate;
+}
+
+/* Fade to black at bottom of hero */
+.md-typeset .hero::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 40%;
+  background: linear-gradient(to bottom, transparent 0%, #09090b 100%);
+  z-index: 0;
+  pointer-events: none;
+}
+
+@keyframes mesh-shift {
+  0% { transform: translate(0, 0) rotate(0deg) scale(1); }
+  100% { transform: translate(-5%, 5%) rotate(3deg) scale(1.05); }
+}
+
+.md-typeset .hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Bold animated gradient title */
 .md-typeset .hero h1 {
-  font-size: 2.5rem;
+  font-size: 4.5rem;
   font-weight: 800;
-  margin-bottom: 1rem;
-  background: linear-gradient(135deg, var(--smg-primary) 0%, var(--smg-secondary) 100%);
+  margin-bottom: 1.5rem;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  background: linear-gradient(
+    135deg,
+    #fff 0%,
+    #fff 20%,
+    var(--mesh-purple) 40%,
+    var(--mesh-cyan) 60%,
+    var(--mesh-blue) 80%,
+    #fff 100%
+  );
+  background-size: 200% 200%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  animation: title-gradient 8s ease-in-out infinite;
 }
 
-.md-typeset .hero p {
-  font-size: 1.25rem;
-  color: var(--md-default-fg-color--light);
-  max-width: 600px;
-  margin: 0 auto 2rem;
+@keyframes title-gradient {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
 }
 
-/* Feature cards - Modern glassmorphism style */
+/* Hide anchor */
+.md-typeset .hero h1 a.headerlink {
+  display: none;
+}
+
+/* Subtitle accent */
+.md-typeset .hero > p:first-of-type {
+  font-size: 1.3rem;
+  font-weight: 600;
+  background: linear-gradient(90deg, var(--mesh-purple), var(--mesh-pink), var(--mesh-cyan));
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 0.75rem;
+  animation: subtitle-gradient 5s ease-in-out infinite;
+}
+
+@keyframes subtitle-gradient {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.md-typeset .hero > p:last-of-type {
+  font-size: 1.15rem;
+  color: var(--md-default-fg-color--lighter);
+  max-width: 580px;
+  margin: 0 auto 2.5rem;
+  line-height: 1.7;
+}
+
+/* Hide edit buttons on homepage */
+.md-content:has(.hero) .md-content__button {
+  display: none;
+}
+
+/* ==============================================
+   FEATURE CARDS - Bold Clean Style
+   ============================================== */
+
 .md-typeset .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 1.25rem;
-  margin: 2rem 0;
+  margin: 2.5rem 0;
 }
 
 .md-typeset .card {
   position: relative;
-  padding: 1.25rem 1.5rem;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.1);
-  background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
-  backdrop-filter: blur(10px);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 1.75rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
 }
 
+/* Animated gradient border on hover */
 .md-typeset .card::before {
   content: "";
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--smg-primary) 0%, var(--smg-secondary) 100%);
+  inset: 0;
+  border-radius: 16px;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--mesh-purple), var(--mesh-cyan), var(--mesh-blue), var(--mesh-pink));
+  background-size: 300% 300%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity 0.4s ease;
+  animation: border-gradient 4s ease infinite;
+}
+
+@keyframes border-gradient {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Glow effect behind card on hover */
+.md-typeset .card::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--mesh-purple), var(--mesh-cyan), var(--mesh-blue));
+  background-size: 200% 200%;
+  filter: blur(20px);
+  opacity: 0;
+  z-index: -1;
+  transition: opacity 0.4s ease;
+  animation: border-gradient 4s ease infinite;
 }
 
 .md-typeset .card:hover {
-  border-color: rgba(129, 140, 248, 0.3);
-  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.15), 0 0 0 1px rgba(129, 140, 248, 0.1);
-  transform: translateY(-4px);
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(139, 92, 246, 0.1) 0%, transparent 60%),
+    rgba(255, 255, 255, 0.04);
+  transform: translateY(-6px);
 }
 
 .md-typeset .card:hover::before {
   opacity: 1;
 }
 
+.md-typeset .card:hover::after {
+  opacity: 0.2;
+}
+
+/* Fallback for browsers not supporting mask-composite (Firefox) */
+@supports not (mask-composite: exclude) {
+  .md-typeset .card:hover {
+    border-color: var(--mesh-purple);
+  }
+  .md-typeset .card::before,
+  .md-typeset .card::after {
+    display: none;
+  }
+}
+
 .md-typeset .card h3 {
   margin-top: 0;
-  margin-bottom: 0.5rem;
-  font-size: 1rem;
+  margin-bottom: 0.75rem;
+  font-size: 1.05rem;
   font-weight: 600;
   color: var(--md-default-fg-color);
   line-height: 1.4;
+  transition: color 0.3s ease;
+}
+
+.md-typeset .card:hover h3 {
+  color: white;
+}
+
+/* Make entire card clickable when it contains a link */
+.md-typeset .card > p:last-child > a:only-child {
+  position: static;
+}
+
+.md-typeset .card > p:last-child > a:only-child::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+
+.md-typeset .card:has(> p:last-child > a:only-child) {
+  cursor: pointer;
 }
 
 /* Material icons alignment - target the span wrapper */
@@ -156,6 +349,30 @@
   font-weight: 500;
 }
 
+/* Animated link underlines */
+.md-typeset a:not(.button):not(.headerlink):not(.md-nav__link) {
+  position: relative;
+  text-decoration: none;
+}
+
+.md-typeset .md-content a:not(.button):not(.headerlink)::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, var(--mesh-purple), var(--mesh-cyan));
+  transform: scaleX(0);
+  transform-origin: right;
+  transition: transform 0.3s ease;
+}
+
+.md-typeset .md-content a:not(.button):not(.headerlink):hover::after {
+  transform: scaleX(1);
+  transform-origin: left;
+}
+
 /* Compact grid for smaller cards */
 .md-typeset .grid--compact {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -166,37 +383,74 @@
   padding: 1rem 1.25rem;
 }
 
-/* Buttons */
+/* ==============================================
+   BUTTONS - Bold Modern Style
+   ============================================== */
+
 .md-typeset .button {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.75rem 1.5rem;
-  border-radius: 8px;
+  padding: 0.9rem 1.75rem;
+  border-radius: 10px;
   font-weight: 600;
+  font-size: 0.95rem;
   text-decoration: none;
   transition: all 0.2s ease;
 }
 
 .md-typeset .button--primary {
-  background: var(--smg-primary-dark);
-  color: white !important;
+  background: linear-gradient(135deg, #fff, #e4e4e7);
+  color: #09090b !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.md-typeset .button--primary::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  background: linear-gradient(135deg, var(--mesh-purple), var(--mesh-cyan), var(--mesh-blue), var(--mesh-pink));
+  background-size: 300% 300%;
+  border-radius: 12px;
+  filter: blur(12px);
+  opacity: 0.5;
+  z-index: -1;
+  animation: button-glow 3s ease-in-out infinite;
+}
+
+@keyframes button-glow {
+  0%, 100% {
+    background-position: 0% 50%;
+    opacity: 0.4;
+  }
+  50% {
+    background-position: 100% 50%;
+    opacity: 0.7;
+  }
 }
 
 .md-typeset .button--primary:hover {
-  background: var(--smg-primary);
-  transform: translateY(-1px);
+  background: white;
+  transform: translateY(-3px);
+  box-shadow: 0 15px 50px rgba(139, 92, 246, 0.3);
+}
+
+.md-typeset .button--primary:hover::before {
+  opacity: 0.8;
+  filter: blur(18px);
 }
 
 .md-typeset .button--secondary {
-  background: transparent;
-  border: 2px solid var(--smg-primary);
-  color: var(--smg-primary) !important;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white !important;
 }
 
 .md-typeset .button--secondary:hover {
-  background: var(--smg-primary);
-  color: white !important;
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
 }
 
 /* Admonitions */
@@ -337,6 +591,135 @@
   font-size: 0.9rem;
 }
 
+/* ==============================================
+   STATS BAR - Bold Numbers
+   ============================================== */
+
+.md-typeset .stats-bar {
+  display: flex;
+  justify-content: center;
+  gap: 0;
+  padding: 2.5rem 2rem;
+  margin: 0 auto 1.5rem;
+  max-width: 900px;
+}
+
+.md-typeset .stat {
+  text-align: center;
+  padding: 0 3rem;
+  position: relative;
+}
+
+/* Glowing divider between stats */
+.md-typeset .stat:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 50px;
+  background: linear-gradient(180deg, transparent, var(--mesh-purple), var(--mesh-cyan), transparent);
+  opacity: 0.5;
+}
+
+.md-typeset .stat-value {
+  display: block;
+  font-size: 3.5rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, white 0%, var(--mesh-purple) 50%, var(--mesh-cyan) 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1.1;
+  animation: stat-gradient 6s ease-in-out infinite;
+}
+
+@keyframes stat-gradient {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.md-typeset .stat-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--md-default-fg-color--lightest);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-top: 0.5rem;
+}
+
+/* ==============================================
+   SUPPORTED BACKENDS - Minimal Pills
+   ============================================== */
+
+.md-typeset .backends {
+  margin: 1.5rem 0 3rem;
+  text-align: center;
+}
+
+.md-typeset .backends-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--md-default-fg-color--lightest);
+  margin-bottom: 1rem;
+}
+
+.md-typeset .backends-grid {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.md-typeset .backend {
+  padding: 0.45rem 1rem;
+  background: rgba(139, 92, 246, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--md-default-fg-color--lighter);
+  transition: all 0.3s ease;
+}
+
+.md-typeset .backend:hover {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(6, 182, 212, 0.2));
+  border-color: var(--mesh-purple);
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.2);
+}
+
+/* Community links - compact footer style */
+.md-typeset .community-links {
+  text-align: center;
+  padding: 2rem 0;
+  margin-top: 2rem;
+  font-size: 0.85rem;
+  color: var(--md-default-fg-color--lightest);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.md-typeset .community-links a {
+  color: var(--md-default-fg-color--lighter);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.md-typeset .community-links a:hover {
+  color: var(--mesh-purple);
+}
+
+.md-typeset .community-links .twemoji svg {
+  opacity: 0.6;
+}
+
 /* Footer */
 .md-footer {
   margin-top: 3rem;
@@ -374,11 +757,55 @@
 
 /* Responsive */
 @media screen and (max-width: 76.25em) {
+  .md-typeset .hero {
+    padding: 4rem 1rem 3rem;
+  }
+
   .md-typeset .hero h1 {
-    font-size: 2rem;
+    font-size: 3rem;
   }
 
   .md-typeset .grid {
     grid-template-columns: 1fr;
+  }
+
+  .md-typeset .stats-bar {
+    flex-wrap: wrap;
+    gap: 1.5rem;
+  }
+
+  .md-typeset .stat {
+    flex: 1 1 40%;
+    padding: 0 1.5rem;
+  }
+
+  .md-typeset .stat::after {
+    display: none;
+  }
+
+  .md-typeset .stat-value {
+    font-size: 2.5rem;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .md-typeset .hero h1 {
+    font-size: 2.5rem;
+  }
+
+  .md-typeset .stat-value {
+    font-size: 2rem;
+  }
+}
+
+/* Accessibility: Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
