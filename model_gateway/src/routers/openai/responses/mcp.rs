@@ -296,42 +296,50 @@ pub(super) async fn execute_streaming_tool_calls(
 // Payload Transformation
 // ============================================================================
 
-/// Transform payload to replace MCP tools with function tools
+/// Transform payload to replace MCP/builtin tools with function tools.
+///
+/// Retains existing function tools from the request, removes non-function tools
+/// (MCP, builtin), and appends function tools for discovered MCP server tools.
 pub(super) fn prepare_mcp_tools_as_functions(
     payload: &mut Value,
     orchestrator: &Arc<McpOrchestrator>,
     server_keys: &[String],
 ) {
-    if let Some(obj) = payload.as_object_mut() {
-        // Remove any non-function tools from outgoing payload
-        if let Some(v) = obj.get_mut("tools") {
-            if let Some(arr) = v.as_array_mut() {
-                arr.retain(|item| {
+    let Some(obj) = payload.as_object_mut() else {
+        return;
+    };
+
+    let mut retained_tools: Vec<Value> = Vec::new();
+    if let Some(v) = obj.get_mut("tools") {
+        if let Some(arr) = v.as_array_mut() {
+            retained_tools = arr
+                .drain(..)
+                .filter(|item| {
                     item.get("type")
                         .and_then(|v| v.as_str())
                         .map(|s| s == ItemType::FUNCTION)
                         .unwrap_or(false)
-                });
-            }
+                })
+                .collect();
         }
+    }
 
-        // Build function tools for all discovered MCP tools
-        let tools = orchestrator.list_tools_for_servers(server_keys);
-        let mut tools_json = Vec::with_capacity(tools.len());
-        for entry in tools {
-            let parameters = Value::Object((*entry.tool.input_schema).clone());
-            let tool = serde_json::json!({
-                "type": ItemType::FUNCTION,
-                "name": entry.tool.name,
-                "description": entry.tool.description,
-                "parameters": parameters
-            });
-            tools_json.push(tool);
-        }
-        if !tools_json.is_empty() {
-            obj.insert("tools".to_string(), Value::Array(tools_json));
-            obj.insert("tool_choice".to_string(), Value::String("auto".to_string()));
-        }
+    let mcp_tools = orchestrator.list_tools_for_servers(server_keys);
+    let mut tools_json = Vec::with_capacity(retained_tools.len() + mcp_tools.len());
+    tools_json.append(&mut retained_tools);
+
+    for entry in mcp_tools {
+        tools_json.push(serde_json::json!({
+            "type": ItemType::FUNCTION,
+            "name": entry.tool.name,
+            "description": entry.tool.description,
+            "parameters": Value::Object((*entry.tool.input_schema).clone())
+        }));
+    }
+
+    if !tools_json.is_empty() {
+        obj.insert("tools".to_string(), Value::Array(tools_json));
+        obj.insert("tool_choice".to_string(), Value::String("auto".to_string()));
     }
 }
 
