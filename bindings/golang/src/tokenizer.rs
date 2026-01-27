@@ -1,19 +1,19 @@
 //! Tokenizer FFI functions
 
-use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_int};
-use std::ptr;
-use std::sync::Arc;
-use serde_json::Value;
-
-use smg::tokenizer::{
-    create_tokenizer_from_file,
-    traits::Tokenizer as TokenizerTrait,
-    chat_template::ChatTemplateParams,
-    huggingface::HuggingFaceTokenizer,
+use std::{
+    ffi::{CStr, CString},
+    os::raw::{c_char, c_int},
+    ptr,
+    sync::Arc,
 };
 
-use super::error::{SglErrorCode, set_error_message, clear_error_message};
+use serde_json::Value;
+use smg::tokenizer::{
+    chat_template::ChatTemplateParams, create_tokenizer_from_file,
+    huggingface::HuggingFaceTokenizer, traits::Tokenizer as TokenizerTrait,
+};
+
+use super::error::{clear_error_message, set_error_message, SglErrorCode};
 
 #[cfg(target_os = "macos")]
 type BooleanT = libc::boolean_t;
@@ -58,9 +58,7 @@ pub unsafe extern "C" fn sgl_tokenizer_create_from_file(
     match create_tokenizer_from_file(path_str) {
         Ok(tokenizer) => {
             clear_error_message(error_out);
-            Box::into_raw(Box::new(TokenizerHandle {
-                tokenizer,
-            }))
+            Box::into_raw(Box::new(TokenizerHandle { tokenizer }))
         }
         Err(e) => {
             set_error_message(error_out, &e.to_string());
@@ -142,6 +140,14 @@ pub unsafe extern "C" fn sgl_tokenizer_encode(
 ///
 /// # Returns
 /// * SglErrorCode::Success on success, error code on failure
+///
+/// # Safety
+/// - `handle` must be a valid pointer returned by `sgl_tokenizer_create`
+/// - `messages_json` must be a valid null-terminated C string containing valid JSON
+/// - `tools_json` may be null; if non-null, must be a valid null-terminated C string
+/// - `result_out` must be a valid pointer to writable memory
+/// - `error_out` may be null; if non-null, must point to writable memory
+/// - Caller must free the string written to `result_out` using `sgl_free_string`
 #[no_mangle]
 pub unsafe extern "C" fn sgl_tokenizer_apply_chat_template_with_tools(
     handle: *mut TokenizerHandle,
@@ -184,7 +190,10 @@ pub unsafe extern "C" fn sgl_tokenizer_apply_chat_template_with_tools(
                     match serde_json::from_str::<Vec<Value>>(s) {
                         Ok(t) => Some(t),
                         Err(e) => {
-                            set_error_message(error_out, &format!("Failed to parse tools JSON: {}", e));
+                            set_error_message(
+                                error_out,
+                                &format!("Failed to parse tools JSON: {}", e),
+                            );
                             return SglErrorCode::InvalidArgument;
                         }
                     }
@@ -206,7 +215,7 @@ pub unsafe extern "C" fn sgl_tokenizer_apply_chat_template_with_tools(
     if let Some(hf_tokenizer) = tokenizer.as_any().downcast_ref::<HuggingFaceTokenizer>() {
         // Apply chat template with tools
         let empty_docs: [Value; 0] = [];
-        let tools_slice = tools.as_ref().map(|t| t.as_slice());
+        let tools_slice = tools.as_deref();
         let params = ChatTemplateParams {
             add_generation_prompt: true,
             tools: tools_slice,
@@ -219,7 +228,10 @@ pub unsafe extern "C" fn sgl_tokenizer_apply_chat_template_with_tools(
                 let result_cstr = match CString::new(result) {
                     Ok(s) => s,
                     Err(e) => {
-                        set_error_message(error_out, &format!("Failed to create result string: {}", e));
+                        set_error_message(
+                            error_out,
+                            &format!("Failed to create result string: {}", e),
+                        );
                         return SglErrorCode::MemoryError;
                     }
                 };
@@ -233,7 +245,10 @@ pub unsafe extern "C" fn sgl_tokenizer_apply_chat_template_with_tools(
             }
         }
     } else {
-        set_error_message(error_out, "Chat template is only supported for HuggingFace tokenizers");
+        set_error_message(
+            error_out,
+            "Chat template is only supported for HuggingFace tokenizers",
+        );
         SglErrorCode::TokenizationError
     }
 }
@@ -248,6 +263,13 @@ pub unsafe extern "C" fn sgl_tokenizer_apply_chat_template_with_tools(
 ///
 /// # Returns
 /// * SglErrorCode::Success on success, error code on failure
+///
+/// # Safety
+/// - `handle` must be a valid pointer returned by `sgl_tokenizer_create`
+/// - `messages_json` must be a valid null-terminated C string containing valid JSON
+/// - `result_out` must be a valid pointer to writable memory
+/// - `error_out` may be null; if non-null, must point to writable memory
+/// - Caller must free the string written to `result_out` using `sgl_free_string`
 #[no_mangle]
 pub unsafe extern "C" fn sgl_tokenizer_apply_chat_template(
     handle: *mut TokenizerHandle,
@@ -289,7 +311,7 @@ pub unsafe extern "C" fn sgl_tokenizer_apply_chat_template(
         let empty_tools: [Value; 0] = [];
         let empty_docs: [Value; 0] = [];
         let params = ChatTemplateParams {
-            add_generation_prompt: true,  // Important: tells the model to start generating
+            add_generation_prompt: true, // Important: tells the model to start generating
             tools: Some(&empty_tools),
             documents: Some(&empty_docs),
             template_kwargs: None,
@@ -300,7 +322,10 @@ pub unsafe extern "C" fn sgl_tokenizer_apply_chat_template(
                 let result_cstr = match CString::new(result) {
                     Ok(s) => s,
                     Err(e) => {
-                        set_error_message(error_out, &format!("Failed to create result string: {}", e));
+                        set_error_message(
+                            error_out,
+                            &format!("Failed to create result string: {}", e),
+                        );
                         return SglErrorCode::MemoryError;
                     }
                 };
@@ -314,7 +339,10 @@ pub unsafe extern "C" fn sgl_tokenizer_apply_chat_template(
             }
         }
     } else {
-        set_error_message(error_out, "Chat template is only supported for HuggingFace tokenizers");
+        set_error_message(
+            error_out,
+            "Chat template is only supported for HuggingFace tokenizers",
+        );
         SglErrorCode::TokenizationError
     }
 }
@@ -331,6 +359,13 @@ pub unsafe extern "C" fn sgl_tokenizer_apply_chat_template(
 ///
 /// # Returns
 /// * SglErrorCode::Success on success, error code on failure
+///
+/// # Safety
+/// - `handle` must be a valid pointer returned by `sgl_tokenizer_create`
+/// - `token_ids` must be a valid pointer to an array of at least `token_count` u32 values
+/// - `result_out` must be a valid pointer to writable memory
+/// - `error_out` may be null; if non-null, must point to writable memory
+/// - Caller must free the string written to `result_out` using `sgl_free_string`
 #[no_mangle]
 pub unsafe extern "C" fn sgl_tokenizer_decode(
     handle: *mut TokenizerHandle,

@@ -11,7 +11,11 @@ pub fn generate_tool_call_id(
 ) -> String {
     if model.to_lowercase().contains("kimi") {
         // KimiK2 format: functions.{name}:{global_index}
-        format!("functions.{}:{}", function_name, history_tool_calls_count + index)
+        format!(
+            "functions.{}:{}",
+            function_name,
+            history_tool_calls_count + index
+        )
     } else {
         // Standard OpenAI format: call_{24-char-uuid}
         format!("call_{}", &Uuid::new_v4().simple().to_string()[..24])
@@ -29,6 +33,12 @@ pub fn generate_tool_call_id(
 ///
 /// # Returns
 /// * SglErrorCode::Success on success, error code on failure
+///
+/// # Safety
+/// - `tools_json` and `tool_choice_json` must be valid null-terminated C strings or null
+/// - `constraint_type_out` and `constraint_schema_out` must be valid pointers to writable memory
+/// - `error_out` may be null; if non-null, must point to writable memory
+/// - Caller is responsible for freeing any allocated strings using `sgl_free_string`
 #[no_mangle]
 pub unsafe extern "C" fn sgl_generate_tool_constraints(
     _tools_json: *const std::os::raw::c_char,
@@ -39,6 +49,9 @@ pub unsafe extern "C" fn sgl_generate_tool_constraints(
 ) -> super::error::SglErrorCode {
     // Implementation would parse JSON and call generate_tool_constraints
     // This is a placeholder
-    super::error::set_error_message(error_out, "Tool constraint generation not yet implemented in FFI");
+    super::error::set_error_message(
+        error_out,
+        "Tool constraint generation not yet implemented in FFI",
+    );
     super::error::SglErrorCode::UnknownError
 }
