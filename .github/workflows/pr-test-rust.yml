@@ -47,22 +47,48 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
-      - name: Build python binding
+      - name: Build Python wheel and Go FFI library (parallel)
         run: |
           source "$HOME/.cargo/env"
           export RUSTC_WRAPPER=sccache
-          cd bindings/python
-          python3 -m pip install --upgrade pip maturin
-          maturin build --profile ci --features vendored-openssl --out dist
 
-      - name: List built wheel
-        run: ls -lh bindings/python/dist/
+          # Install maturin first
+          python3 -m pip install --upgrade pip maturin
+
+          # Start Go FFI build in background
+          echo "Starting Go FFI build in background..."
+          (cd bindings/golang && make build && echo "Go FFI: OK" && ls -la target/release/libsmg_go.*) &
+          GO_PID=$!
+
+          # Build Python wheel in foreground
+          echo "Building Python wheel..."
+          cd bindings/python
+          maturin build --profile ci --features vendored-openssl --out dist
+          echo "Python wheel: OK"
+          ls -lh dist/
+
+          # Wait for Go build to complete
+          echo "Waiting for Go FFI build..."
+          wait $GO_PID
+          GO_EXIT=$?
+          if [ $GO_EXIT -ne 0 ]; then
+            echo "Go FFI build failed with exit code $GO_EXIT"
+            exit $GO_EXIT
+          fi
+          echo "Both builds completed successfully"
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v6
         with:
           name: smg-wheel
           path: bindings/python/dist/*.whl
+          retention-days: 1
+
+      - name: Upload Go FFI library artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: go-ffi-library
+          path: bindings/golang/target/release/libsmg_go.*
           retention-days: 1
 
       - name: Test wheel install
@@ -283,8 +309,102 @@ jobs:
           docker stop oracle-db || true
           docker rm oracle-db || true
 
+  go-unit-tests:
+    name: go-unit-tests
+    needs: [check-ci, build-wheel]
+    if: needs.check-ci.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+          cache-dependency-path: bindings/golang/go.sum
+
+      - name: Download Go FFI library
+        uses: actions/download-artifact@v7
+        with:
+          name: go-ffi-library
+          path: bindings/golang/target/release/
+
+      - name: Verify Go FFI library
+        run: ls -la bindings/golang/target/release/libsmg_go.*
+
+      - name: Run Go unit tests
+        run: |
+          cd bindings/golang
+          export CGO_LDFLAGS="-L$(pwd)/target/release"
+          export LD_LIBRARY_PATH="$(pwd)/target/release:$LD_LIBRARY_PATH"
+          go test -v ./...
+
+  go-bindings-e2e:
+    name: go-bindings-e2e
+    needs: [check-ci, build-wheel]
+    if: needs.check-ci.outputs.should_run == 'true'
+    runs-on: 4-gpu-a10
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Clone SGLang repository
+        run: git clone https://github.com/sgl-project/sglang.git
+
+      - name: Install SGLang dependencies
+        run: |
+          cd sglang
+          sudo --preserve-env=PATH bash scripts/ci/cuda/ci_install_dependency.sh
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+          cache-dependency-path: bindings/golang/go.sum
+
+      - name: Download Go FFI library
+        uses: actions/download-artifact@v7
+        with:
+          name: go-ffi-library
+          path: bindings/golang/target/release/
+
+      - name: Verify Go FFI library
+        run: ls -la bindings/golang/target/release/libsmg_go.*
+
+      - name: Download wheel artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: smg-wheel
+          path: wheel/
+
+      - name: Install wheel
+        run: |
+          pip uninstall -y smg || true
+          pip install wheel/*.whl
+
+      - name: Install test dependencies
+        run: |
+          python3 -m pip install pytest pytest-rerunfailures httpx openai grpcio grpcio-health-checking numpy
+
+      - name: Run Go OAI server E2E tests
+        run: |
+          bash scripts/ci_killall_sglang.sh "nuk_gpus"
+          export CGO_LDFLAGS="-L$(pwd)/bindings/golang/target/release"
+          export LD_LIBRARY_PATH="$(pwd)/bindings/golang/target/release:$LD_LIBRARY_PATH"
+          SHOW_WORKER_LOGS=0 SHOW_ROUTER_LOGS=1 ROUTER_LOCAL_MODEL_PATH="/home/ubuntu/models" \
+            pytest --reruns 2 --reruns-delay 5 e2e_test/bindings_go -s -vv -o log_cli=true --log-cli-level=INFO
+
   finish:
-    needs: [check-ci, build-wheel, python-unit-tests, unit-tests, gateway-e2e]
+    needs: [check-ci, build-wheel, python-unit-tests, unit-tests, gateway-e2e, go-unit-tests, go-bindings-e2e]
     if: always()
     runs-on: ubuntu-latest
     permissions: {}
@@ -294,7 +414,7 @@ jobs:
           if [[ "${{ needs.check-ci.outputs.should_run }}" != "true" ]]; then
             echo "CI was skipped (external contributor without run-ci label)"
             exit 0
-          elif [[ "${{ needs.build-wheel.result }}" == "failure" || "${{ needs.unit-tests.result }}" == "failure" || "${{ needs.gateway-e2e.result }}" == "failure" ]]; then
+          elif [[ "${{ needs.build-wheel.result }}" == "failure" || "${{ needs.unit-tests.result }}" == "failure" || "${{ needs.gateway-e2e.result }}" == "failure" || "${{ needs.go-unit-tests.result }}" == "failure" || "${{ needs.go-bindings-e2e.result }}" == "failure" ]]; then
             echo "One or more jobs failed"
             exit 1
           else
