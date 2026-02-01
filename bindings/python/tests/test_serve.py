@@ -272,6 +272,75 @@ class TestParseServeArgs:
 # ---------------------------------------------------------------------------
 
 
+class TestWorkerLauncherGpuEnv:
+    """Test GPU assignment via _get_tp_size() and gpu_env()."""
+
+    @pytest.mark.parametrize(
+        "launcher_class, args, expected_tp",
+        [
+            (SglangWorkerLauncher, argparse.Namespace(tp_size=4), 4),
+            (SglangWorkerLauncher, argparse.Namespace(), 1),
+            (VllmWorkerLauncher, argparse.Namespace(tensor_parallel_size=2), 2),
+            (VllmWorkerLauncher, argparse.Namespace(), 1),
+            (TrtllmWorkerLauncher, argparse.Namespace(tp_size=8), 8),
+            (TrtllmWorkerLauncher, argparse.Namespace(), 1),
+        ],
+    )
+    def test_get_tp_size(self, launcher_class, args, expected_tp):
+        """_get_tp_size returns the correct value from args or defaults to 1."""
+        launcher = launcher_class()
+        assert launcher._get_tp_size(args) == expected_tp
+
+    def test_gpu_env_dp_rank_0_tp_2(self):
+        launcher = SglangWorkerLauncher()
+        args = argparse.Namespace(tp_size=2)
+        env = launcher.gpu_env(args, dp_rank=0, env={})
+        assert env["CUDA_VISIBLE_DEVICES"] == "0,1"
+
+    def test_gpu_env_dp_rank_1_tp_2(self):
+        launcher = SglangWorkerLauncher()
+        args = argparse.Namespace(tp_size=2)
+        env = launcher.gpu_env(args, dp_rank=1, env={})
+        assert env["CUDA_VISIBLE_DEVICES"] == "2,3"
+
+    def test_gpu_env_dp_rank_2_tp_4(self):
+        launcher = VllmWorkerLauncher()
+        args = argparse.Namespace(tensor_parallel_size=4)
+        env = launcher.gpu_env(args, dp_rank=2, env={})
+        assert env["CUDA_VISIBLE_DEVICES"] == "8,9,10,11"
+
+    def test_gpu_env_tp_1_default(self):
+        launcher = TrtllmWorkerLauncher()
+        args = argparse.Namespace()  # no tp_size → default 1
+        env = launcher.gpu_env(args, dp_rank=3, env={})
+        assert env["CUDA_VISIBLE_DEVICES"] == "3"
+
+    def test_gpu_env_preserves_existing_env(self):
+        launcher = SglangWorkerLauncher()
+        args = argparse.Namespace(tp_size=1)
+        base_env = {"PATH": "/usr/bin", "HOME": "/root"}
+        env = launcher.gpu_env(args, dp_rank=0, env=base_env)
+        assert env["PATH"] == "/usr/bin"
+        assert env["HOME"] == "/root"
+        assert env["CUDA_VISIBLE_DEVICES"] == "0"
+
+    def test_gpu_env_does_not_mutate_input(self):
+        launcher = SglangWorkerLauncher()
+        args = argparse.Namespace(tp_size=1)
+        base_env = {"FOO": "bar"}
+        env = launcher.gpu_env(args, dp_rank=0, env=base_env)
+        assert "CUDA_VISIBLE_DEVICES" not in base_env
+        assert "CUDA_VISIBLE_DEVICES" in env
+
+    def test_gpu_env_none_copies_os_environ(self):
+        launcher = SglangWorkerLauncher()
+        args = argparse.Namespace(tp_size=1)
+        with patch.dict("os.environ", {"TEST_VAR": "123"}, clear=False):
+            env = launcher.gpu_env(args, dp_rank=0)
+        assert env["TEST_VAR"] == "123"
+        assert env["CUDA_VISIBLE_DEVICES"] == "0"
+
+
 class TestSglangWorkerLauncher:
     """Test SglangWorkerLauncher.build_command()."""
 
@@ -579,3 +648,24 @@ class TestServeOrchestrator:
 
         assert len(orch.workers) == 1
         assert orch.workers[0][1] == 50051
+
+    def test_launch_workers_passes_gpu_env(self):
+        """_launch_workers passes CUDA_VISIBLE_DEVICES via gpu_env for each dp_rank."""
+        args = _make_args(dp_size=2, tp_size=2)
+        orch = ServeOrchestrator("sglang", args)
+
+        launched_envs = []
+
+        def capture_launch(a, host, port, env):
+            launched_envs.append(env)
+            mock_proc = MagicMock()
+            mock_proc.pid = 1000 + port
+            return mock_proc
+
+        with patch("smg.serve._find_available_ports", return_value=[31000, 31003]):
+            with patch.object(orch.launcher, "launch", side_effect=capture_launch):
+                orch._launch_workers()
+
+        assert len(launched_envs) == 2
+        assert launched_envs[0]["CUDA_VISIBLE_DEVICES"] == "0,1"
+        assert launched_envs[1]["CUDA_VISIBLE_DEVICES"] == "2,3"
