@@ -501,18 +501,20 @@ class ModelPool:
         Returns:
             The launched ModelInstance.
         """
-        if mode == ConnectionMode.GRPC:
+        if mode == ConnectionMode.GRPC and is_vllm():
             logger.info(
-                "gRPC worker requested for %s: E2E_RUNTIME=%s, routing to %s backend",
+                "gRPC worker requested for %s: E2E_RUNTIME=%s, routing to vLLM backend",
                 model_id,
                 get_runtime(),
-                "vLLM" if is_vllm() else "SGLang",
             )
-            if is_vllm():
-                # Launch vLLM gRPC worker instead of SGLang
-                spec = get_model_spec(model_id)
-                # vLLM startup can be slow, use longer timeout
-                return self._launch_vllm_grpc_worker(model_id, spec, gpu_slot, 600)
+            # Launch vLLM gRPC worker instead of SGLang
+            spec = get_model_spec(model_id)
+            # vLLM startup can be slow, use longer timeout
+            return self._launch_vllm_grpc_worker(
+                model_id, spec, gpu_slot, 600,
+                worker_type=worker_type,
+                instance_key=instance_key,
+            )
 
         spec = get_model_spec(model_id)
         model_path = spec["model"]
@@ -1106,6 +1108,8 @@ class ModelPool:
         model_spec: dict,
         gpu_slot: GPUSlot,
         startup_timeout: int,
+        worker_type: WorkerType = WorkerType.REGULAR,
+        instance_key: str | None = None,
     ) -> ModelInstance | None:
         """Launch a vLLM worker with native gRPC.
 
@@ -1114,18 +1118,27 @@ class ModelPool:
             model_spec: Model specification dict from MODEL_SPECS.
             gpu_slot: GPU slot assignment.
             startup_timeout: Timeout for worker to become healthy.
+            worker_type: Worker type (REGULAR, PREFILL, or DECODE).
+            instance_key: Custom instance key, or None to auto-generate.
 
         Returns:
             The launched ModelInstance, or None if launch fails.
         """
+        import json
+
         model_path = model_spec["model"]
         tp_size = model_spec.get("tp", 1)
-        memory_gb = model_spec.get("memory_gb", 16)
         port = gpu_slot.port
 
         # Build environment
         env = os.environ.copy()
         env["CUDA_VISIBLE_DEVICES"] = gpu_slot.cuda_visible_devices()
+
+        # For PD mode, each worker needs a unique NIXL side-channel port.
+        # Use port as offset to ensure uniqueness, with min bound to stay in valid range.
+        if worker_type in (WorkerType.PREFILL, WorkerType.DECODE):
+            nixl_side_channel_port = max(5600, 5600 + (port - 50051))
+            env["VLLM_NIXL_SIDE_CHANNEL_PORT"] = str(nixl_side_channel_port)
 
         # Build vLLM gRPC command
         cmd = [
@@ -1140,25 +1153,59 @@ class ModelPool:
             str(port),
             "--tensor-parallel-size",
             str(tp_size),
-            "--max-model-len",
-            "2048",  # Reduced to minimize GPU memory usage
-            "--gpu-memory-utilization",
-            "0.9",
-            "--enforce-eager",  # Disable CUDA graph to save memory
         ]
+
+        # PD mode uses different defaults than regular mode
+        if worker_type in (WorkerType.PREFILL, WorkerType.DECODE):
+            max_model_len = model_spec.get("max_model_len", 4096)
+            gpu_memory_util = model_spec.get("gpu_memory_utilization", 0.9)
+            cmd.extend(["--max-model-len", str(max_model_len)])
+            cmd.extend(["--gpu-memory-utilization", str(gpu_memory_util)])
+
+            # Add NIXL KV transfer config
+            kv_role = "kv_producer" if worker_type == WorkerType.PREFILL else "kv_consumer"
+            kv_transfer_config = json.dumps(
+                {"kv_connector": "NixlConnector", "kv_role": kv_role}
+            )
+            cmd.extend(["--kv-transfer-config", kv_transfer_config])
+
+            if model_spec.get("enforce_eager", False):
+                cmd.append("--enforce-eager")
+        else:
+            # Regular mode uses more conservative defaults
+            cmd.extend(["--max-model-len", "2048"])
+            cmd.extend(["--gpu-memory-utilization", "0.9"])
+            cmd.append("--enforce-eager")
 
         # Add vllm_args from model spec if present
         vllm_args = model_spec.get("vllm_args", [])
         if vllm_args:
             cmd.extend(vllm_args)
 
-        key = f"{model_id}:vllm-grpc"
-        logger.info(
-            "Launching vLLM gRPC worker %s on GPUs %s port %d",
-            key,
-            gpu_slot.gpu_ids,
-            port,
-        )
+        # Build key based on worker type
+        if instance_key:
+            key = instance_key
+        elif worker_type == WorkerType.REGULAR:
+            key = f"{model_id}:grpc"
+        else:
+            key = f"{model_id}:grpc:{worker_type.value}"
+
+        if worker_type in (WorkerType.PREFILL, WorkerType.DECODE):
+            logger.info(
+                "Launching vLLM gRPC %s worker %s on GPUs %s port %d (NIXL port %s)",
+                worker_type.value,
+                key,
+                gpu_slot.gpu_ids,
+                port,
+                env.get("VLLM_NIXL_SIDE_CHANNEL_PORT", "N/A"),
+            )
+        else:
+            logger.info(
+                "Launching vLLM gRPC worker %s on GPUs %s port %d",
+                key,
+                gpu_slot.gpu_ids,
+                port,
+            )
 
         show_output = os.environ.get(ENV_SHOW_WORKER_LOGS, "0") == "1"
 
@@ -1182,8 +1229,8 @@ class ModelPool:
             process=proc,
             gpu_slot=gpu_slot,
             key=key,
-            worker_type=WorkerType.REGULAR,
-            bootstrap_port=None,
+            worker_type=worker_type,
+            bootstrap_port=None,  # vLLM PD uses NIXL, not bootstrap
             last_used=time.time(),
         )
         self.instances[key] = instance

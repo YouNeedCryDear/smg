@@ -96,6 +96,13 @@ def setup_backend(request: pytest.FixtureRequest, model_pool: "ModelPool"):
         )
         return
 
+    # vLLM PD disaggregation backend (NIXL-based KV transfer)
+    if backend_name == "vllm_pd":
+        yield from _setup_vllm_pd_backend(
+            request, model_pool, model_id, workers_config, gateway_config
+        )
+        return
+
     # Check if this is a local backend (grpc, http)
     try:
         connection_mode = ConnectionMode(backend_name)
@@ -148,47 +155,99 @@ def _setup_pd_backend(
     workers_config: dict,
     gateway_config: dict,
 ):
-    """Setup PD disaggregation backend."""
+    """Setup SGLang PD disaggregation backend (HTTP mode with bootstrap)."""
+    from infra import ConnectionMode
+
+    yield from _setup_pd_backend_common(
+        model_pool=model_pool,
+        model_id=model_id,
+        workers_config=workers_config,
+        gateway_config=gateway_config,
+        connection_mode=ConnectionMode.HTTP,
+        backend_name="pd",
+    )
+
+
+def _setup_vllm_pd_backend(
+    request: pytest.FixtureRequest,
+    model_pool: "ModelPool",
+    model_id: str,
+    workers_config: dict,
+    gateway_config: dict,
+):
+    """Setup vLLM PD disaggregation backend (gRPC mode with NIXL KV transfer)."""
+    from infra import ConnectionMode
+
+    yield from _setup_pd_backend_common(
+        model_pool=model_pool,
+        model_id=model_id,
+        workers_config=workers_config,
+        gateway_config=gateway_config,
+        connection_mode=ConnectionMode.GRPC,
+        backend_name="vllm_pd",
+    )
+
+
+def _setup_pd_backend_common(
+    model_pool: "ModelPool",
+    model_id: str,
+    workers_config: dict,
+    gateway_config: dict,
+    connection_mode,
+    backend_name: str,
+):
+    """Common setup for PD disaggregation backends.
+
+    Args:
+        model_pool: The model pool instance.
+        model_id: Model identifier.
+        workers_config: Worker configuration from markers.
+        gateway_config: Gateway configuration from markers.
+        connection_mode: ConnectionMode.HTTP for SGLang, ConnectionMode.GRPC for vLLM.
+        backend_name: Backend name to yield ("pd" or "vllm_pd").
+    """
     import openai
-    from infra import ConnectionMode, Gateway, WorkerIdentity, WorkerType
+    from infra import Gateway, WorkerIdentity, WorkerType
 
-    logger.info("Setting up PD backend for model %s", model_id)
+    runtime_label = "vLLM" if backend_name == "vllm_pd" else "SGLang"
+    logger.info("Setting up %s PD backend for model %s", runtime_label, model_id)
 
-    # Get PD configuration from workers marker
     num_prefill = workers_config.get("prefill") or 1
     num_decode = workers_config.get("decode") or 1
-    logger.info("PD config: %d prefill, %d decode workers", num_prefill, num_decode)
+    logger.info(
+        "%s PD config: %d prefill, %d decode workers",
+        runtime_label,
+        num_prefill,
+        num_decode,
+    )
 
-    # Try to use pre-launched PD workers, or launch additional ones if needed
     # get_workers_by_type auto-acquires all returned workers
     existing_prefills = model_pool.get_workers_by_type(model_id, WorkerType.PREFILL)
     existing_decodes = model_pool.get_workers_by_type(model_id, WorkerType.DECODE)
 
-    # Calculate how many more we need
     missing_prefill = max(0, num_prefill - len(existing_prefills))
     missing_decode = max(0, num_decode - len(existing_decodes))
 
     if missing_prefill == 0 and missing_decode == 0:
         prefills = existing_prefills[:num_prefill]
         decodes = existing_decodes[:num_decode]
-        # Release excess workers we won't use
         for w in existing_prefills[num_prefill:]:
             w.release()
         for w in existing_decodes[num_decode:]:
             w.release()
         logger.info(
-            "Using pre-launched PD workers: %d prefill, %d decode",
+            "Using pre-launched %s PD workers: %d prefill, %d decode",
+            runtime_label,
             len(prefills),
             len(decodes),
         )
     else:
-        # Build WorkerIdentity list for missing workers
         workers_to_launch: list[WorkerIdentity] = []
         for i in range(missing_prefill):
             workers_to_launch.append(
                 WorkerIdentity(
                     model_id,
-                    ConnectionMode.HTTP,
+                    connection_mode,
                     WorkerType.PREFILL,
                     len(existing_prefills) + i,
                 )
@@ -197,7 +256,7 @@ def _setup_pd_backend(
             workers_to_launch.append(
                 WorkerIdentity(
                     model_id,
-                    ConnectionMode.HTTP,
+                    connection_mode,
                     WorkerType.DECODE,
                     len(existing_decodes) + i,
                 )
@@ -216,15 +275,13 @@ def _setup_pd_backend(
         )
 
         if not new_instances:
-            # Release any existing workers we acquired
             for w in existing_prefills + existing_decodes:
                 w.release()
             pytest.fail(
-                f"Failed to launch PD workers: needed {len(workers_to_launch)} workers "
-                f"but could not allocate GPUs (all in use or timeout)"
+                f"Failed to launch {runtime_label} PD workers: needed "
+                f"{len(workers_to_launch)} workers but could not allocate GPUs"
             )
 
-        # Acquire newly launched instances (launch_workers doesn't auto-acquire)
         for inst in new_instances:
             inst.acquire()
 
@@ -233,20 +290,16 @@ def _setup_pd_backend(
         prefills = existing_prefills + new_prefills
         decodes = existing_decodes + new_decodes
 
-    # All workers in prefills and decodes are now acquired
-
     if not prefills or not decodes:
-        # This shouldn't happen but guard against it
         for w in prefills + decodes:
             w.release()
         pytest.fail(
-            f"PD setup incomplete: have {len(prefills)} prefill, {len(decodes)} decode "
-            f"(need {num_prefill} prefill, {num_decode} decode)"
+            f"{runtime_label} PD setup incomplete: have {len(prefills)} prefill, "
+            f"{len(decodes)} decode (need {num_prefill} prefill, {num_decode} decode)"
         )
 
     model_path = prefills[0].model_path
 
-    # Launch PD gateway
     gateway = Gateway()
     gateway.start(
         prefill_workers=prefills,
@@ -262,8 +315,9 @@ def _setup_pd_backend(
     )
 
     logger.info(
-        "Setup PD backend: model=%s, %d prefill + %d decode workers, "
+        "Setup %s PD backend: model=%s, %d prefill + %d decode workers, "
         "gateway=%s, policy=%s",
+        runtime_label,
         model_id,
         len(prefills),
         len(decodes),
@@ -272,11 +326,10 @@ def _setup_pd_backend(
     )
 
     try:
-        yield "pd", model_path, client, gateway
+        yield backend_name, model_path, client, gateway
     finally:
-        logger.info("Tearing down PD gateway")
+        logger.info("Tearing down %s PD gateway", runtime_label)
         gateway.shutdown()
-        # Release references to allow eviction
         for worker in prefills + decodes:
             worker.release()
 
