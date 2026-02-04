@@ -117,7 +117,19 @@ def pytest_collection_modifyitems(
         tp = MODEL_SPECS[model_id].get("tp", 1)
         return tp * (prefill + decode + regular)
 
-    for item in items:
+    # Filter items based on -k expression to only scan tests that will actually run
+    keyword = config.option.keyword
+    if keyword:
+        from _pytest.mark.expression import Expression
+
+        expr = Expression.compile(keyword)
+        items_to_scan = [
+            item for item in items if expr.evaluate(lambda x: x in item.keywords)
+        ]
+    else:
+        items_to_scan = items
+
+    for item in items_to_scan:
         # Extract model from marker or use default
         # Walk class MRO to prioritize child class markers over parent class
         model_id = None
@@ -405,6 +417,10 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "storage(backend): mark test to use a specific history storage backend "
         "(memory, oracle). Default is memory.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "nightly: mark test as a nightly comprehensive benchmark",
     )
 
 
