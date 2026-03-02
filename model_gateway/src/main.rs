@@ -15,7 +15,7 @@ use smg::{
         otel_trace::{is_otel_enabled, shutdown_otel},
     },
     server::{self, ServerConfig},
-    service_discovery::ServiceDiscoveryConfig,
+    service_discovery::{ModelIdSource, ServiceDiscoveryConfig},
     version,
 };
 use smg_auth::{ApiKeyEntry, ControlPlaneAuthConfig, JwtConfig, Role};
@@ -254,6 +254,11 @@ struct CliArgs {
     /// Label selector for decode server pods in PD mode
     #[arg(long, num_args = 0.., help_heading = "Service Discovery (Kubernetes)")]
     decode_selector: Vec<String>,
+
+    /// Override each worker's model_id from pod metadata.
+    /// Accepted values: "namespace", "label:<key>", or "annotation:<key>"
+    #[arg(long, help_heading = "Service Discovery (Kubernetes)", value_parser = parse_model_id_from)]
+    model_id_from: Option<String>,
 
     // ==================== Logging ====================
     /// Directory to store log files
@@ -614,6 +619,12 @@ enum OracleConnectSource {
     Wallet { path: String, alias: String },
 }
 
+/// Validate `--model-id-from` value at CLI parse time.
+fn parse_model_id_from(s: &str) -> Result<String, String> {
+    ModelIdSource::parse(s)?;
+    Ok(s.to_string())
+}
+
 /// Parse role mapping from CLI format "idp_role=gateway_role"
 #[expect(
     clippy::print_stderr,
@@ -945,6 +956,7 @@ impl CliArgs {
                 bootstrap_port_annotation: "sglang.ai/bootstrap-port".to_string(),
                 router_selector: HashMap::new(), // Can be set via config file
                 router_mesh_port_annotation: "sglang.ai/ha-port".to_string(),
+                model_id_source: self.model_id_from.clone(),
             })
         } else {
             None
@@ -1084,7 +1096,7 @@ impl CliArgs {
         builder.build()
     }
 
-    fn to_server_config(&self, router_config: RouterConfig) -> ServerConfig {
+    fn to_server_config(&self, router_config: RouterConfig) -> ConfigResult<ServerConfig> {
         let service_discovery_config = if self.service_discovery {
             // Get router discovery config from router_config.discovery if available
             let (router_selector, router_mesh_port_annotation) = router_config
@@ -1098,6 +1110,24 @@ impl CliArgs {
                 })
                 .unwrap_or_else(|| (HashMap::new(), "sglang.ai/mesh-port".to_string()));
 
+            let model_id_source = self
+                .model_id_from
+                .as_deref()
+                .or_else(|| {
+                    router_config
+                        .discovery
+                        .as_ref()
+                        .and_then(|d| d.model_id_source.as_deref())
+                })
+                .map(|s| {
+                    ModelIdSource::parse(s).map_err(|e| ConfigError::InvalidValue {
+                        field: "model_id_source".to_string(),
+                        value: s.to_string(),
+                        reason: e,
+                    })
+                })
+                .transpose()?;
+
             Some(ServiceDiscoveryConfig {
                 enabled: true,
                 selector: Self::parse_selector(&self.selector),
@@ -1110,6 +1140,7 @@ impl CliArgs {
                 bootstrap_port_annotation: "sglang.ai/bootstrap-port".to_string(),
                 router_selector,
                 router_mesh_port_annotation,
+                model_id_source,
             })
         } else {
             None
@@ -1168,7 +1199,7 @@ impl CliArgs {
             None
         };
 
-        ServerConfig {
+        Ok(ServerConfig {
             host: self.host.clone(),
             port: self.port,
             router_config,
@@ -1187,7 +1218,7 @@ impl CliArgs {
             shutdown_grace_period_secs: self.shutdown_grace_period_secs,
             control_plane_auth,
             mesh_server_config,
-        }
+        })
     }
 }
 
@@ -1272,7 +1303,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let router_config = cli_args.to_router_config(prefill_urls)?;
     router_config.validate()?;
 
-    let server_config = cli_args.to_server_config(router_config);
+    let server_config = cli_args.to_server_config(router_config)?;
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async move { server::startup(server_config).await })?;
     if is_otel_enabled() {
