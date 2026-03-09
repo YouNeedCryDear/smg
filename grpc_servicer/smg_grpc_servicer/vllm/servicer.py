@@ -5,13 +5,20 @@ vLLM gRPC Servicer
 Implements the VllmEngine gRPC service on top of vLLM's AsyncLLM.
 """
 
+import asyncio
 import itertools
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
+from pathlib import Path
 
 import grpc
 import torch
 from smg_grpc_proto import vllm_engine_pb2, vllm_engine_pb2_grpc
+from smg_grpc_servicer.tokenizer_bundle import (
+    TOKENIZER_CHUNK_SIZE,
+    prepare_tokenizer_bundle,
+)
+from smg_grpc_proto.generated import common_pb2
 from transformers import BatchFeature
 from vllm import SamplingParams, TextPrompt, TokensPrompt
 from vllm.logger import init_logger
@@ -51,13 +58,14 @@ class VllmEngineServicer(vllm_engine_pb2_grpc.VllmEngineServicer):
     """
     gRPC servicer implementing the VllmEngine service.
 
-    Handles 6 RPCs:
+    Handles 7 RPCs:
     - Generate: Streaming text generation
     - Embed: Embeddings (TODO)
     - HealthCheck: Health probe
     - Abort: Cancel requests out-of-band
     - GetModelInfo: Model metadata
     - GetServerInfo: Server state
+    - GetTokenizer: Stream tokenizer artifacts as a zip bundle
     """
 
     def __init__(self, async_llm: AsyncLLM, start_time: float):
@@ -70,6 +78,8 @@ class VllmEngineServicer(vllm_engine_pb2_grpc.VllmEngineServicer):
         """
         self.async_llm = async_llm
         self.start_time = start_time
+        self._tokenizer_bundle_cache: tuple[bytes, str] | None = None
+        self._tokenizer_bundle_lock = asyncio.Lock()
         logger.info("VllmEngineServicer initialized")
 
     async def Generate(
@@ -308,7 +318,66 @@ class VllmEngineServicer(vllm_engine_pb2_grpc.VllmEngineServicer):
             kv_role=kv_role,
         )
 
+    async def GetTokenizer(
+        self,
+        _request: common_pb2.GetTokenizerRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> AsyncIterator[common_pb2.GetTokenizerChunk]:
+        """Stream tokenizer bundle as raw zip bytes; sha256 is sent on the final chunk only."""
+        logger.info("Receive tokenizer fetch request")
+
+        try:
+            bundle_bytes, fingerprint = await self._get_or_build_tokenizer_bundle()
+        except FileNotFoundError as exc:
+            logger.error("Tokenizer bundle not available: %s", exc)
+            await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
+            return
+        except Exception as exc:
+            logger.exception("Failed to prepare tokenizer bundle")
+            await context.abort(grpc.StatusCode.INTERNAL, str(exc))
+            return
+
+        total_size = len(bundle_bytes)
+        logger.info(
+            "Streaming tokenizer bundle: bytes=%d, chunks=%d",
+            total_size,
+            (total_size + TOKENIZER_CHUNK_SIZE - 1) // TOKENIZER_CHUNK_SIZE,
+        )
+
+        bundle_view = memoryview(bundle_bytes)
+        for start in range(0, total_size, TOKENIZER_CHUNK_SIZE):
+            end = min(start + TOKENIZER_CHUNK_SIZE, total_size)
+            is_final_chunk = end == total_size
+            yield common_pb2.GetTokenizerChunk(
+                data=bundle_view[start:end],
+                sha256=fingerprint if is_final_chunk else "",
+            )
+
     # ========== Helper methods ==========
+
+    async def _get_or_build_tokenizer_bundle(self) -> tuple[bytes, str]:
+        """Return cached tokenizer bundle, building it lazily on first call.
+
+        The bundle preparation runs in a thread pool to avoid blocking the
+        event loop with synchronous I/O and compression work.
+        """
+        if self._tokenizer_bundle_cache is not None:
+            return self._tokenizer_bundle_cache
+        async with self._tokenizer_bundle_lock:
+            if self._tokenizer_bundle_cache is None:
+                loop = asyncio.get_running_loop()
+                self._tokenizer_bundle_cache = await loop.run_in_executor(
+                    None, self._prepare_tokenizer_bundle
+                )
+        return self._tokenizer_bundle_cache
+
+    def _prepare_tokenizer_bundle(self) -> tuple[bytes, str]:
+        """Build a deterministic zip bundle of tokenizer artifacts and return (bytes, sha256)."""
+        model_config = self.async_llm.model_config
+        return prepare_tokenizer_bundle(
+            model_path=model_config.model,
+            tokenizer_path=getattr(model_config, "tokenizer", None),
+        )
 
     def _build_preprocessed_mm_inputs(
         self,
