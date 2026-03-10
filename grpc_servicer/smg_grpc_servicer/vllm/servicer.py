@@ -9,7 +9,6 @@ import asyncio
 import itertools
 import time
 from collections.abc import AsyncGenerator, AsyncIterator
-from pathlib import Path
 
 import grpc
 import torch

@@ -20,12 +20,9 @@ TOKENIZER_FILE_NAMES = {
     "tokenizer.json",
     "tokenizer_config.json",
     "special_tokens_map.json",
-    "added_tokens.json",
     "vocab.json",
-    "vocab.txt",
     "merges.txt",
     "chat_template.json",
-    "config.json",
 }
 
 # Extension-based matching for file types that are always tokenizer artifacts.
