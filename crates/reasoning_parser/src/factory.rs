@@ -164,6 +164,18 @@ impl ParserFactory {
     pub fn new() -> Self {
         let registry = ParserRegistry::new();
 
+        // Register default passthrough parser
+        registry.register_parser("passthrough", || {
+            let config = ParserConfig {
+                think_start_token: String::new(),
+                think_end_token: String::new(),
+                stream_reasoning: true,
+                max_buffer_size: DEFAULT_MAX_BUFFER_SIZE,
+                initial_in_reasoning: false,
+            };
+            Box::new(BaseReasoningParser::new(config).with_model_type("passthrough".to_string()))
+        });
+
         // Register base parser
         registry.register_parser("base", || {
             Box::new(BaseReasoningParser::new(ParserConfig::default()))
@@ -229,7 +241,7 @@ impl ParserFactory {
     /// Falls back to a passthrough parser if model is not recognized.
     #[expect(
         clippy::expect_used,
-        reason = "passthrough parser is registered on the line above; None indicates a bug in registration logic"
+        reason = "passthrough parser is registered in new(); None indicates a bug in registration logic"
     )]
     pub fn get_pooled(&self, model_id: &str) -> PooledParser {
         // First try to find by pattern
@@ -240,24 +252,7 @@ impl ParserFactory {
         // Fall back to no-op parser (get or create passthrough in pool)
         self.registry
             .get_pooled_parser("passthrough")
-            .unwrap_or_else(|| {
-                // Register passthrough if not already registered
-                self.registry.register_parser("passthrough", || {
-                    let config = ParserConfig {
-                        think_start_token: String::new(),
-                        think_end_token: String::new(),
-                        stream_reasoning: true,
-                        max_buffer_size: DEFAULT_MAX_BUFFER_SIZE,
-                        initial_in_reasoning: false,
-                    };
-                    Box::new(
-                        BaseReasoningParser::new(config).with_model_type("passthrough".to_string()),
-                    )
-                });
-                self.registry
-                    .get_pooled_parser("passthrough")
-                    .expect("passthrough parser was just registered")
-            })
+            .expect("passthrough parser should always be registered")
     }
 
     /// Create a new parser instance for the given model ID.
@@ -283,6 +278,11 @@ impl ParserFactory {
     /// Get the internal registry for custom registration.
     pub fn registry(&self) -> &ParserRegistry {
         &self.registry
+    }
+
+    /// List all registered parsers (for compatibility with Python API).
+    pub fn list_parsers(&self) -> Vec<String> {
+        self.registry.creators.read().keys().cloned().collect()
     }
 
     /// Clear the parser pool.
