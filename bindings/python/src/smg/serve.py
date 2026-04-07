@@ -185,7 +185,9 @@ class VllmWorkerLauncher(WorkerLauncher):
         ):
             cmd.append("--enable-prompt-tokens-details")
 
-        cmd.extend(self._filter_backend_args(backend_args, ["--model", "--host", "--port", "--uds"]))
+        cmd.extend(
+            self._filter_backend_args(backend_args, ["--model", "--host", "--port", "--uds"])
+        )
 
         return cmd
 
