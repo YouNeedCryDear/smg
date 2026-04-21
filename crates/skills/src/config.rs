@@ -5,7 +5,8 @@ use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
 };
 pub use smg_blob_storage::{
-    BlobStoreBackend as SkillsBlobStoreBackend, BlobStoreConfig as SkillsBlobStoreConfig,
+    BlobCacheConfig as SkillsCacheConfig, BlobStoreBackend as SkillsBlobStoreBackend,
+    BlobStoreConfig as SkillsBlobStoreConfig,
 };
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -228,22 +229,6 @@ impl Default for SkillsAdminConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
-pub struct SkillsCacheConfig {
-    pub path: String,
-    pub max_size_mb: usize,
-}
-
-impl Default for SkillsCacheConfig {
-    fn default() -> Self {
-        Self {
-            path: "/var/smg/cache/skills".to_string(),
-            max_size_mb: 1024,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(default)]
 pub struct SkillsRateLimitsConfig {
     pub create_per_min: u32,
     pub create_per_day: u32,
@@ -425,6 +410,7 @@ mod tests {
         let skills = SkillsConfig::default();
         assert_eq!(skills.resolution_mode, SkillsResolutionMode::Auto);
         assert_eq!(skills.max_skills_per_request, 8);
+        assert_eq!(skills.cache.max_size_mb, 0);
     }
 
     #[test]
@@ -451,6 +437,6 @@ mod tests {
             Some("http://executor.internal")
         );
         assert_eq!(parsed.tool_loop.max_steps, 8);
-        assert_eq!(parsed.cache.max_size_mb, 1024);
+        assert_eq!(parsed.cache.max_size_mb, 0);
     }
 }
