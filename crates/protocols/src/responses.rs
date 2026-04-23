@@ -413,6 +413,21 @@ pub enum ResponseTool {
     /// hosted/built-in tools are explicitly not permitted as elements.
     #[serde(rename = "namespace")]
     Namespace(NamespaceToolDef),
+
+    /// Containerized `shell` tool. Distinct from `local_shell` — the tool
+    /// definition itself may carry an optional [`ShellEnvironment`]
+    /// (container-auto, local, or existing container reference) that the
+    /// platform resolves into a concrete execution target. Emitted
+    /// `shell_call` items use the narrower call-side unions
+    /// [`ShellCallEnvironment`] (input path) and
+    /// [`ResponseShellCallEnvironment`] (response path), which drop the
+    /// `container_auto` variant and (on the response path) the tool-side
+    /// `skills` attachment.
+    ///
+    /// Spec (openai-responses-api-spec.md §tools, L463-470):
+    /// `Shell { type: "shell", environment? }`.
+    #[serde(rename = "shell")]
+    Shell(ShellTool),
 }
 
 /// Payload carried by [`ResponseTool::Namespace`].
@@ -686,6 +701,286 @@ pub enum CustomToolCallOutputContent {
     /// Array of input-typed content parts (`input_text` / `input_image` /
     /// `input_file`) per the spec's `output` array shape.
     Parts(Vec<CustomToolInputContentPart>),
+}
+
+/// Containerized `shell` tool. Spec
+/// (openai-responses-api-spec.md §tools, L463-470):
+/// `Shell { type: "shell", environment? }`.
+///
+/// The discriminator (`type: "shell"`) is enforced by the parent
+/// [`ResponseTool`] enum; this struct carries only the optional environment
+/// payload so the flatten-style wire shape survives a round-trip.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ShellTool {
+    /// Optional environment scope for the shell tool. When omitted, the
+    /// model runs commands inside the platform-default environment.
+    pub environment: Option<ShellEnvironment>,
+}
+
+/// Tool-side environment union carried on [`ShellTool::environment`].
+///
+/// Spec (openai-responses-api-spec.md §tools, L464-470):
+/// `environment: ContainerAuto | LocalEnvironment | ContainerReference`.
+///
+/// Distinct from the call-side environment unions
+/// [`ShellCallEnvironment`] (input-side call form, reuses
+/// [`LocalShellEnvironment`] with `skills?`) and
+/// [`ResponseShellCallEnvironment`] (response-side call form, carries the
+/// narrower [`ResponseLocalShellEnvironment`] with no `skills`): the tool
+/// form permits the `container_auto` variant, which asks the platform to
+/// provision a new container; both call forms only carry the resolved
+/// `local` / `container_reference` shape that the model echoes back.
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "type")]
+pub enum ShellEnvironment {
+    /// `type: "container_auto"` — spec L465-468. Requests a
+    /// platform-provisioned container with optional `file_ids`,
+    /// `memory_limit`, `network_policy`, and `skills`.
+    #[serde(rename = "container_auto")]
+    ContainerAuto(ContainerAutoEnvironment),
+    /// `type: "local"` — spec L469. Runs in the caller-owned environment,
+    /// optionally carrying a `skills` attachment list
+    /// ([`ResponsesSkillEntry`] already accepts both the typed and opaque
+    /// skill object shapes).
+    #[serde(rename = "local")]
+    Local(LocalShellEnvironment),
+    /// `type: "container_reference"` — spec L470. Pins execution to an
+    /// existing container by id.
+    #[serde(rename = "container_reference")]
+    ContainerReference(ContainerReferenceEnvironment),
+}
+
+/// Payload for [`ShellEnvironment::ContainerAuto`]. All fields are optional
+/// per spec.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerAutoEnvironment {
+    /// Files pre-mounted into the container by id.
+    pub file_ids: Option<Vec<String>>,
+    /// Memory budget. Spec (CodeInterpreter §447): `"1g"|"4g"|"16g"|"64g"`
+    /// — kept `String`-typed here for forward compatibility with future tiers.
+    pub memory_limit: Option<String>,
+    /// Network isolation policy.
+    pub network_policy: Option<ContainerNetworkPolicy>,
+    /// Skill attachments. Reuses [`ResponsesSkillEntry`] — the same union
+    /// the `/v1/responses` tool surfaces accept for CodeInterpreter, which
+    /// covers both typed `skill_reference` / `local` shapes and opaque
+    /// provider-owned objects.
+    pub skills: Option<Vec<ResponsesSkillEntry>>,
+}
+
+/// Payload for [`ShellEnvironment::Local`]. Only `skills` is permitted per
+/// spec.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LocalShellEnvironment {
+    /// Optional skill attachments carried into the local environment.
+    pub skills: Option<Vec<ResponsesSkillEntry>>,
+}
+
+/// Payload for [`ShellEnvironment::ContainerReference`]. Pins the tool to
+/// an existing container id.
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerReferenceEnvironment {
+    /// Existing container id.
+    pub container_id: String,
+}
+
+/// Network isolation policy for [`ContainerAutoEnvironment::network_policy`].
+///
+/// Spec (openai-responses-api-spec.md §tools, L448):
+/// `ContainerNetworkPolicyDisabled { type: "disabled" } |
+/// ContainerNetworkPolicyAllowlist { allowed_domains, type: "allowlist",
+/// domain_secrets? }`.
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "type")]
+pub enum ContainerNetworkPolicy {
+    /// `type: "disabled"` — no outbound network access.
+    #[serde(rename = "disabled")]
+    Disabled,
+    /// `type: "allowlist"` — only the listed domains are reachable.
+    #[serde(rename = "allowlist")]
+    Allowlist(ContainerNetworkAllowlist),
+}
+
+/// Payload for [`ContainerNetworkPolicy::Allowlist`].
+///
+/// Spec (openai-responses-api-spec.md §tools, L448-449):
+/// `{ allowed_domains, type: "allowlist", domain_secrets? }` where
+/// `domain_secrets: array of { domain, name, value }`.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerNetworkAllowlist {
+    /// Outbound-reachable hostnames.
+    pub allowed_domains: Vec<String>,
+    /// Optional per-domain secret bindings.
+    pub domain_secrets: Option<Vec<ContainerDomainSecret>>,
+}
+
+/// Per-domain secret binding carried by
+/// [`ContainerNetworkAllowlist::domain_secrets`].
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerDomainSecret {
+    /// Target domain the secret applies to.
+    pub domain: String,
+    /// Secret identifier / lookup name.
+    pub name: String,
+    /// Secret value.
+    pub value: String,
+}
+
+/// Input-side environment union carried on
+/// [`ResponseInputOutputItem::ShellCall`].
+///
+/// Spec (openai-responses-api-spec.md §ShellCall, L228-230): the input-side
+/// call form carries `environment: optional LocalEnvironment { type: "local",
+/// skills? } | ContainerReference { container_id, type: "container_reference"
+/// }`. `container_auto` is rejected here — it is a request-side *tool*
+/// hint (§tools L465) that the platform resolves into `local` /
+/// `container_reference` before a call is surfaced, not a call-form value.
+///
+/// The tool-side [`LocalShellEnvironment`] is intentionally reused so
+/// spec-compliant replay flows that echo back input call items with their
+/// original `skills` attachment continue to round-trip losslessly.
+/// Response-side emissions use the narrower [`ResponseShellCallEnvironment`]
+/// instead.
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "type")]
+pub enum ShellCallEnvironment {
+    /// `type: "local"` — input-side local environment. Spec L230 allows
+    /// `skills?`, so this variant reuses the tool-form
+    /// [`LocalShellEnvironment`] verbatim. Preserves round-trip fidelity
+    /// for clients that replay prior input items carrying skill
+    /// attachments.
+    #[serde(rename = "local")]
+    Local(LocalShellEnvironment),
+    /// `type: "container_reference"` — resolved container binding.
+    #[serde(rename = "container_reference")]
+    ContainerReference(ContainerReferenceEnvironment),
+}
+
+/// Response-side environment union carried on
+/// [`ResponseOutputItem::ShellCall`].
+///
+/// Spec (openai-responses-api-spec.md §returns L512-513): the ShellCall
+/// response form has `environment: ResponseLocalEnvironment { type: "local"
+/// } | ResponseContainerReference { container_id, type: "container_reference"
+/// }`. Unlike the input-side [`ShellCallEnvironment`], the response-side
+/// local arm is `ResponseLocalEnvironment { type: "local" }` with no
+/// `skills` field — skills is a tool/input-side attachment that is not
+/// echoed back on the resolved call.
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "type")]
+pub enum ResponseShellCallEnvironment {
+    /// `type: "local"` — resolved local environment on the response-side
+    /// call form. Per spec L513 this is `ResponseLocalEnvironment { type:
+    /// "local" }`, without the `skills` attachment carried on the
+    /// input-side [`ShellCallEnvironment::Local`].
+    #[serde(rename = "local")]
+    Local(ResponseLocalShellEnvironment),
+    /// `type: "container_reference"` — resolved container binding.
+    /// Structurally identical to the input-side variant; reused directly.
+    #[serde(rename = "container_reference")]
+    ContainerReference(ContainerReferenceEnvironment),
+}
+
+/// Payload for [`ResponseShellCallEnvironment::Local`].
+///
+/// Spec (openai-responses-api-spec.md §returns L513): response-side local
+/// environment is `ResponseLocalEnvironment { type: "local" }` — the
+/// discriminator is the only field the model echoes back. `skills` is a
+/// request/input-side attachment on [`LocalShellEnvironment`] and is not
+/// part of the response-side envelope; modelling it here would let
+/// request-only fields leak through the response union unchecked.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ResponseLocalShellEnvironment {}
+
+/// Action payload for [`ResponseInputOutputItem::ShellCall`] /
+/// [`ResponseOutputItem::ShellCall`].
+///
+/// Spec (openai-responses-api-spec.md §ShellCall, L229):
+/// `action: { commands, max_output_length?, timeout_ms? }`.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ShellCallAction {
+    /// Command line to run inside the environment, as a positional-argv
+    /// array (equivalent to `argv` of `execve`).
+    pub commands: Vec<String>,
+    /// Optional cap on captured stdout / stderr bytes.
+    pub max_output_length: Option<u64>,
+    /// Optional per-command timeout in milliseconds.
+    pub timeout_ms: Option<u64>,
+}
+
+/// Status for [`ResponseInputOutputItem::ShellCall`] /
+/// [`ResponseOutputItem::ShellCall`] and their `*_output` siblings.
+///
+/// Spec (openai-responses-api-spec.md §ShellCall, L221+L238):
+/// `status: "in_progress" | "completed" | "incomplete"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ShellCallStatus {
+    /// `in_progress` — call is still executing.
+    InProgress,
+    /// `completed` — call finished and `output` chunks are final.
+    Completed,
+    /// `incomplete` — call aborted or never reached completion.
+    Incomplete,
+}
+
+/// One entry of a `shell_call_output.output` array.
+///
+/// Spec (openai-responses-api-spec.md §ShellCallOutput, L234-238):
+/// `{ outcome, stderr, stdout }` plus the optional `created_by` marker
+/// mirroring the same tag on `FunctionCallOutput`/`ComputerCallOutput` for
+/// provenance.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ShellOutputChunk {
+    /// Call outcome — timeout or numeric exit.
+    pub outcome: ShellOutcome,
+    /// Captured stderr bytes (UTF-8 where possible).
+    pub stderr: String,
+    /// Captured stdout bytes (UTF-8 where possible).
+    pub stdout: String,
+    /// Optional provenance marker — `"system"`, `"user"`, or similar per
+    /// spec. Kept `Option<String>` for forward-compatibility with future
+    /// `created_by` tags.
+    pub created_by: Option<String>,
+}
+
+/// Outcome of a shell call. Spec (openai-responses-api-spec.md
+/// §ShellCallOutput, L235):
+/// `outcome: Timeout { type: "timeout" } | Exit { exit_code, type: "exit" }`.
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "type")]
+pub enum ShellOutcome {
+    /// `type: "timeout"` — the call exceeded `action.timeout_ms` and was
+    /// killed by the environment.
+    #[serde(rename = "timeout")]
+    Timeout,
+    /// `type: "exit"` — the process exited, carrying the numeric exit code.
+    #[serde(rename = "exit")]
+    Exit(ShellExit),
+}
+
+/// Exit payload for [`ShellOutcome::Exit`]. Spec: `{ exit_code, type: "exit" }`.
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ShellExit {
+    /// Process exit code. Signed to preserve negative error codes on
+    /// platforms that report them.
+    pub exit_code: i32,
 }
 
 #[serde_with::skip_serializing_none]
@@ -1283,6 +1578,60 @@ pub enum ResponseInputOutputItem {
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
     },
+    /// `type: "shell_call"` — assistant's call into the containerized
+    /// [`ResponseTool::Shell`] tool.
+    ///
+    /// Spec (openai-responses-api-spec.md §ShellCall, L228-231) +
+    /// OpenAI SDK v2.8.1 `ResponseFunctionShellToolCall`:
+    /// `{ action, call_id, type, id, environment, status, created_by? }`.
+    /// `id` is `Option<String>` so newly-minted client-side calls can omit
+    /// it; the model populates it on items round-tripped from a previous
+    /// response. `created_by` carries provenance metadata the SDK types
+    /// as `Optional[str]` — present when the item was emitted by the
+    /// platform, absent on client-authored calls.
+    #[serde(rename = "shell_call")]
+    ShellCall {
+        action: ShellCallAction,
+        call_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        /// Resolved execution environment. Spec constrains this to
+        /// `local` or `container_reference` on the call form (see
+        /// [`ShellCallEnvironment`] docs).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        environment: Option<ShellCallEnvironment>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<ShellCallStatus>,
+        /// Provenance tag mirroring the SDK's `created_by: Optional[str]`
+        /// on `ResponseFunctionShellToolCall`. Dropped at serialize time
+        /// when absent so client-authored calls do not carry a null
+        /// placeholder.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        created_by: Option<String>,
+    },
+    /// `type: "shell_call_output"` — client's reply to a `shell_call`.
+    ///
+    /// Spec (openai-responses-api-spec.md §ShellCallOutput, L233-238) +
+    /// OpenAI SDK v2.8.1 `ResponseFunctionShellToolCallOutput`:
+    /// `{ call_id, output, type, id, max_output_length?, status, created_by? }`.
+    /// `id`, `max_output_length`, and `created_by` are modelled as
+    /// `Option` per the SDK's `Optional[...]` typing; the server populates
+    /// them on items round-tripped from a previous response.
+    #[serde(rename = "shell_call_output")]
+    ShellCallOutput {
+        call_id: String,
+        output: Vec<ShellOutputChunk>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_output_length: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<ShellCallStatus>,
+        /// Provenance tag mirroring the SDK's `created_by: Optional[str]`
+        /// on `ResponseFunctionShellToolCallOutput`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        created_by: Option<String>,
+    },
     #[serde(untagged)]
     SimpleInputMessage {
         content: StringOrContentParts,
@@ -1592,6 +1941,59 @@ pub enum ResponseOutputItem {
         acknowledged_safety_checks: Vec<ComputerSafetyCheck>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         status: Option<ComputerCallStatus>,
+    },
+    /// `type: "shell_call"` — output-side mirror of the input variant.
+    ///
+    /// Spec (openai-responses-api-spec.md §ShellCall, L228-231 and §returns
+    /// L512-513) + OpenAI SDK v2.8.1 `ResponseFunctionShellToolCall`:
+    /// emitted when the model issues a containerized shell action. The
+    /// environment echoed back is restricted to `local` /
+    /// `container_reference` via [`ResponseShellCallEnvironment`], which
+    /// narrows the input-side [`ShellCallEnvironment`] by dropping the
+    /// `skills` attachment on the `local` arm — per spec L513 the response
+    /// form uses `ResponseLocalEnvironment { type: "local" }` only.
+    ///
+    /// `id` and `status` are required on the output wire — the SDK types
+    /// them as non-`Optional` on `ResponseFunctionShellToolCall`, mirroring
+    /// the `ComputerCall` treatment above. `created_by` is the SDK's
+    /// `Optional[str]` provenance tag, populated when the platform stamps
+    /// the item.
+    #[serde(rename = "shell_call")]
+    ShellCall {
+        id: String,
+        call_id: String,
+        action: ShellCallAction,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        environment: Option<ResponseShellCallEnvironment>,
+        status: ShellCallStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        created_by: Option<String>,
+    },
+    /// `type: "shell_call_output"` — output-side mirror of the input
+    /// variant.
+    ///
+    /// Spec (openai-responses-api-spec.md §ShellCallOutput, L233-238) +
+    /// OpenAI SDK v2.8.1 `ResponseFunctionShellToolCallOutput`:
+    /// `{ call_id, output, type, id, max_output_length?, status, created_by? }`.
+    /// Emitted when the platform surfaces captured stdout/stderr plus an
+    /// [`ShellOutcome`] for a prior shell call.
+    ///
+    /// `id` and `status` are required per the SDK's non-`Optional` typing.
+    /// `max_output_length` is `Optional[int]` in the SDK (the platform may
+    /// emit shell outputs when the originating `shell_call.action` did not
+    /// specify a cap) and `created_by` is `Optional[str]` — both dropped at
+    /// serialize time when absent so downstream consumers do not see null
+    /// placeholders.
+    #[serde(rename = "shell_call_output")]
+    ShellCallOutput {
+        id: String,
+        call_id: String,
+        output: Vec<ShellOutputChunk>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_output_length: Option<u64>,
+        status: ShellCallStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        created_by: Option<String>,
     },
 }
 
@@ -2267,7 +2669,9 @@ impl GenerationRequest for ResponsesRequest {
                         | ResponseInputOutputItem::ComputerCall { .. }
                         | ResponseInputOutputItem::ComputerCallOutput { .. }
                         | ResponseInputOutputItem::CustomToolCall { .. }
-                        | ResponseInputOutputItem::CustomToolCallOutput { .. } => {}
+                        | ResponseInputOutputItem::CustomToolCallOutput { .. }
+                        | ResponseInputOutputItem::ShellCall { .. }
+                        | ResponseInputOutputItem::ShellCallOutput { .. } => {}
                     }
                 }
 
@@ -2561,6 +2965,19 @@ fn validate_input_item(item: &ResponseInputOutputItem) -> Result<(), ValidationE
             }
             _ => {}
         },
+        // ShellCall is model-generated and echoed back on multi-turn replay;
+        // mirrors FunctionToolCall above with no content validation so a
+        // parameterless shell call can round-trip cleanly.
+        ResponseInputOutputItem::ShellCall { .. } => {}
+        ResponseInputOutputItem::ShellCallOutput { .. } => {
+            // Backend execution is out of scope for T6 (schema-only); the
+            // router returns 501 for shell calls, so SMG never synthesises
+            // a ShellCallOutput itself. Skip content validation here so
+            // round-tripping a previously-recorded response (even with an
+            // empty chunk list) stays lossless — the cross-turn replay
+            // contract is the motivating use case for keeping this arm
+            // content-agnostic.
+        }
     }
     Ok(())
 }

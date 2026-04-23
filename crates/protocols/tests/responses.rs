@@ -2027,3 +2027,695 @@ fn test_custom_tool_call_output_validation_rejects_empty_text_and_parts() {
         "non-empty CustomToolCallOutput must validate",
     );
 }
+
+// ---------------------------------------------------------------------------
+// T6 — containerized `shell` tool + call/output items
+// ---------------------------------------------------------------------------
+
+#[test]
+fn shell_tool_no_environment_round_trip() {
+    // Spec (openai-responses-api-spec.md §tools, L463-464):
+    // `Shell { type: "shell", environment? }`. Environment is optional.
+    let payload = json!({
+        "type": "shell",
+    });
+    let tool: ResponseTool =
+        serde_json::from_value(payload.clone()).expect("shell tool w/o env should deserialize");
+    match &tool {
+        ResponseTool::Shell(s) => assert!(s.environment.is_none()),
+        other => panic!("expected ResponseTool::Shell, got {other:?}"),
+    }
+    assert_eq!(serde_json::to_value(&tool).expect("serialize"), payload);
+}
+
+#[test]
+fn shell_tool_container_auto_environment_round_trip() {
+    // Spec (openai-responses-api-spec.md §tools, L465-468):
+    // `ContainerAuto { type: "container_auto", file_ids?, memory_limit?,
+    //  network_policy?, skills? }`.
+    let payload = json!({
+        "type": "shell",
+        "environment": {
+            "type": "container_auto",
+            "file_ids": ["file_001", "file_002"],
+            "memory_limit": "4g",
+            "network_policy": {
+                "type": "allowlist",
+                "allowed_domains": ["api.github.com", "pypi.org"],
+                "domain_secrets": [
+                    {"domain": "api.github.com", "name": "GH_TOKEN", "value": "sk-abc"}
+                ]
+            },
+            "skills": [
+                {"type": "skill_reference", "skill_id": "skill_123", "version": "latest"}
+            ]
+        }
+    });
+
+    let tool: ResponseTool = serde_json::from_value(payload.clone())
+        .expect("shell tool w/ container_auto env should deserialize");
+    match &tool {
+        ResponseTool::Shell(s) => match &s.environment {
+            Some(ShellEnvironment::ContainerAuto(auto)) => {
+                assert_eq!(
+                    auto.file_ids.as_deref(),
+                    Some(&["file_001".into(), "file_002".into()][..])
+                );
+                assert_eq!(auto.memory_limit.as_deref(), Some("4g"));
+                match auto
+                    .network_policy
+                    .as_ref()
+                    .expect("network_policy present")
+                {
+                    ContainerNetworkPolicy::Allowlist(a) => {
+                        assert_eq!(a.allowed_domains, vec!["api.github.com", "pypi.org"]);
+                        let secrets = a.domain_secrets.as_ref().expect("domain_secrets present");
+                        assert_eq!(secrets.len(), 1);
+                        assert_eq!(secrets[0].domain, "api.github.com");
+                        assert_eq!(secrets[0].name, "GH_TOKEN");
+                        assert_eq!(secrets[0].value, "sk-abc");
+                    }
+                    ContainerNetworkPolicy::Disabled => {
+                        panic!("expected Allowlist policy, got Disabled")
+                    }
+                }
+                let skills = auto.skills.as_ref().expect("skills present");
+                assert_eq!(skills.len(), 1);
+            }
+            other => panic!("expected ContainerAuto, got {other:?}"),
+        },
+        other => panic!("expected ResponseTool::Shell, got {other:?}"),
+    }
+
+    assert_eq!(serde_json::to_value(&tool).expect("serialize"), payload);
+}
+
+#[test]
+fn shell_tool_container_auto_disabled_network_policy_round_trip() {
+    // Spec (openai-responses-api-spec.md §tools, L448):
+    // `ContainerNetworkPolicyDisabled { type: "disabled" }` carries no fields.
+    let payload = json!({
+        "type": "shell",
+        "environment": {
+            "type": "container_auto",
+            "network_policy": {"type": "disabled"}
+        }
+    });
+    let tool: ResponseTool = serde_json::from_value(payload.clone())
+        .expect("shell tool w/ disabled network policy should deserialize");
+    match &tool {
+        ResponseTool::Shell(s) => match &s.environment {
+            Some(ShellEnvironment::ContainerAuto(auto)) => {
+                assert!(matches!(
+                    auto.network_policy.as_ref().expect("policy present"),
+                    ContainerNetworkPolicy::Disabled
+                ));
+            }
+            other => panic!("expected ContainerAuto env, got {other:?}"),
+        },
+        other => panic!("expected ResponseTool::Shell, got {other:?}"),
+    }
+    assert_eq!(serde_json::to_value(&tool).expect("serialize"), payload);
+}
+
+#[test]
+fn shell_tool_local_environment_round_trip() {
+    // Spec (openai-responses-api-spec.md §tools, L469):
+    // `LocalEnvironment { type: "local", skills? }` with `LocalSkill`
+    // members `{ description, name, path }`.
+    let payload = json!({
+        "type": "shell",
+        "environment": {
+            "type": "local",
+            "skills": [
+                {
+                    "type": "local",
+                    "name": "fmt",
+                    "description": "Run rustfmt",
+                    "path": "/usr/local/bin/rustfmt"
+                }
+            ]
+        }
+    });
+
+    let tool: ResponseTool = serde_json::from_value(payload.clone())
+        .expect("shell tool w/ local env should deserialize");
+    match &tool {
+        ResponseTool::Shell(s) => match &s.environment {
+            Some(ShellEnvironment::Local(local)) => {
+                let skills = local.skills.as_ref().expect("skills present");
+                assert_eq!(skills.len(), 1);
+            }
+            other => panic!("expected Local env, got {other:?}"),
+        },
+        other => panic!("expected ResponseTool::Shell, got {other:?}"),
+    }
+
+    assert_eq!(serde_json::to_value(&tool).expect("serialize"), payload);
+}
+
+#[test]
+fn shell_tool_container_reference_environment_round_trip() {
+    // Spec (openai-responses-api-spec.md §tools, L470):
+    // `ContainerReference { container_id, type: "container_reference" }`.
+    let payload = json!({
+        "type": "shell",
+        "environment": {
+            "type": "container_reference",
+            "container_id": "container_abc123"
+        }
+    });
+
+    let tool: ResponseTool = serde_json::from_value(payload.clone())
+        .expect("shell tool w/ container_reference env should deserialize");
+    match &tool {
+        ResponseTool::Shell(s) => match &s.environment {
+            Some(ShellEnvironment::ContainerReference(r)) => {
+                assert_eq!(r.container_id, "container_abc123");
+            }
+            other => panic!("expected ContainerReference env, got {other:?}"),
+        },
+        other => panic!("expected ResponseTool::Shell, got {other:?}"),
+    }
+
+    assert_eq!(serde_json::to_value(&tool).expect("serialize"), payload);
+}
+
+#[test]
+fn shell_call_input_item_round_trips_spec_shape() {
+    // Spec (openai-responses-api-spec.md §ShellCall, L228-231):
+    // `{ action, call_id, type, id, environment, status }` with
+    // `action: { commands: array of string, max_output_length?, timeout_ms? }`
+    // and `environment: optional LocalEnvironment | ContainerReference`
+    // (no `container_auto` on the call form per L512-513).
+    let payload = json!({
+        "type": "shell_call",
+        "id": "sc_01",
+        "call_id": "call_shell_1",
+        "action": {
+            "commands": ["bash", "-lc", "echo hi"],
+            "max_output_length": 65536,
+            "timeout_ms": 10000
+        },
+        "environment": {
+            "type": "container_reference",
+            "container_id": "container_abc"
+        },
+        "status": "in_progress"
+    });
+
+    let item: ResponseInputOutputItem =
+        serde_json::from_value(payload.clone()).expect("shell_call should deserialize");
+    match &item {
+        ResponseInputOutputItem::ShellCall {
+            action,
+            call_id,
+            id,
+            environment,
+            status,
+            created_by,
+        } => {
+            assert_eq!(call_id, "call_shell_1");
+            assert_eq!(id.as_deref(), Some("sc_01"));
+            assert_eq!(action.commands, vec!["bash", "-lc", "echo hi"]);
+            assert_eq!(action.max_output_length, Some(65536));
+            assert_eq!(action.timeout_ms, Some(10000));
+            assert!(matches!(
+                environment.as_ref().expect("env present"),
+                ShellCallEnvironment::ContainerReference(_)
+            ));
+            assert_eq!(*status, Some(ShellCallStatus::InProgress));
+            assert!(created_by.is_none());
+        }
+        other => panic!("expected ShellCall, got {other:?}"),
+    }
+    assert_eq!(serde_json::to_value(&item).expect("serialize"), payload);
+}
+
+#[test]
+fn shell_call_minimal_shape_round_trips() {
+    // Spec: `id`, `environment`, `status` are all acceptable as absent on
+    // the input side; `action` and `call_id` are the only required fields
+    // per the audit's Desired shape (§T6 L528).
+    let payload = json!({
+        "type": "shell_call",
+        "call_id": "call_shell_2",
+        "action": {"commands": ["ls"]}
+    });
+
+    let item: ResponseInputOutputItem =
+        serde_json::from_value(payload.clone()).expect("minimal shell_call should deserialize");
+    match &item {
+        ResponseInputOutputItem::ShellCall {
+            action,
+            call_id,
+            id,
+            environment,
+            status,
+            created_by,
+        } => {
+            assert_eq!(call_id, "call_shell_2");
+            assert!(id.is_none());
+            assert!(environment.is_none());
+            assert!(status.is_none());
+            assert_eq!(action.commands, vec!["ls"]);
+            assert!(action.max_output_length.is_none());
+            assert!(action.timeout_ms.is_none());
+            assert!(created_by.is_none());
+        }
+        other => panic!("expected ShellCall, got {other:?}"),
+    }
+    assert_eq!(serde_json::to_value(&item).expect("serialize"), payload);
+}
+
+#[test]
+fn shell_call_output_input_item_round_trips_spec_shape() {
+    // Spec (openai-responses-api-spec.md §ShellCallOutput, L233-238):
+    // `{ call_id, output, type, id, max_output_length, status }` with
+    // `output: array of { outcome, stderr, stdout }` where
+    // `outcome: Timeout { type: "timeout" } | Exit { exit_code, type: "exit" }`.
+    let payload = json!({
+        "type": "shell_call_output",
+        "id": "sco_01",
+        "call_id": "call_shell_1",
+        "output": [
+            {
+                "outcome": {"type": "exit", "exit_code": 0},
+                "stderr": "",
+                "stdout": "hi\n",
+                "created_by": "system"
+            },
+            {
+                "outcome": {"type": "timeout"},
+                "stderr": "killed\n",
+                "stdout": ""
+            }
+        ],
+        "max_output_length": 65536,
+        "status": "completed"
+    });
+
+    let item: ResponseInputOutputItem =
+        serde_json::from_value(payload.clone()).expect("shell_call_output should deserialize");
+    match &item {
+        ResponseInputOutputItem::ShellCallOutput {
+            call_id,
+            output,
+            id,
+            max_output_length,
+            status,
+            created_by,
+        } => {
+            assert_eq!(call_id, "call_shell_1");
+            assert_eq!(id.as_deref(), Some("sco_01"));
+            assert_eq!(*max_output_length, Some(65536));
+            assert_eq!(*status, Some(ShellCallStatus::Completed));
+            assert_eq!(output.len(), 2);
+            match &output[0].outcome {
+                ShellOutcome::Exit(e) => assert_eq!(e.exit_code, 0),
+                ShellOutcome::Timeout => panic!("expected Exit outcome, got Timeout"),
+            }
+            assert_eq!(output[0].stdout, "hi\n");
+            assert_eq!(output[0].stderr, "");
+            assert_eq!(output[0].created_by.as_deref(), Some("system"));
+            assert!(matches!(output[1].outcome, ShellOutcome::Timeout));
+            assert_eq!(output[1].stderr, "killed\n");
+            assert!(output[1].created_by.is_none());
+            assert!(created_by.is_none());
+        }
+        other => panic!("expected ShellCallOutput, got {other:?}"),
+    }
+    assert_eq!(serde_json::to_value(&item).expect("serialize"), payload);
+}
+
+#[test]
+fn shell_call_output_item_round_trips_on_response_side() {
+    // Spec (openai-responses-api-spec.md §returns `output: array of
+    // ResponseOutputItem`, L512-514): ShellCall / ShellCallOutput are
+    // listed as legal output items. Mirrors the input-side variant
+    // byte-for-byte.
+    let payload = json!({
+        "type": "shell_call",
+        "id": "sc_10",
+        "call_id": "call_shell_10",
+        "action": {"commands": ["echo", "ok"]},
+        "environment": {"type": "local"},
+        "status": "completed"
+    });
+
+    let item: ResponseOutputItem = serde_json::from_value(payload.clone())
+        .expect("response-side shell_call should deserialize");
+    match &item {
+        ResponseOutputItem::ShellCall {
+            id,
+            call_id,
+            environment,
+            status,
+            ..
+        } => {
+            assert_eq!(id, "sc_10");
+            assert_eq!(call_id, "call_shell_10");
+            match environment.as_ref().expect("env present") {
+                ResponseShellCallEnvironment::Local(_) => {}
+                ResponseShellCallEnvironment::ContainerReference(_) => {
+                    panic!("expected Local env, got ContainerReference")
+                }
+            }
+            assert_eq!(*status, ShellCallStatus::Completed);
+        }
+        other => panic!("expected ResponseOutputItem::ShellCall, got {other:?}"),
+    }
+    assert_eq!(serde_json::to_value(&item).expect("serialize"), payload);
+}
+
+#[test]
+fn shell_call_container_reference_on_response_side_round_trip() {
+    // Spec (openai-responses-api-spec.md §returns L512-513): the
+    // response-side shell_call environment covers both `local` and
+    // `container_reference`. The sibling
+    // `shell_call_output_item_round_trips_on_response_side` test only
+    // exercises the `Local` arm; this fixture closes coverage for
+    // [`ResponseShellCallEnvironment::ContainerReference`] so a broken
+    // container_reference arm can't slip through the suite even though
+    // the input- and response-side enums are intentionally distinct.
+    let payload = json!({
+        "type": "shell_call",
+        "id": "sc_20",
+        "call_id": "call_shell_20",
+        "action": {"commands": ["echo", "ok"]},
+        "environment": {
+            "type": "container_reference",
+            "container_id": "container_xyz"
+        },
+        "status": "completed"
+    });
+
+    let item: ResponseOutputItem = serde_json::from_value(payload.clone())
+        .expect("response-side shell_call w/ container_reference should deserialize");
+    match &item {
+        ResponseOutputItem::ShellCall {
+            id,
+            call_id,
+            environment,
+            status,
+            ..
+        } => {
+            assert_eq!(id, "sc_20");
+            assert_eq!(call_id, "call_shell_20");
+            match environment.as_ref().expect("env present") {
+                ResponseShellCallEnvironment::ContainerReference(r) => {
+                    assert_eq!(r.container_id, "container_xyz");
+                }
+                ResponseShellCallEnvironment::Local(_) => {
+                    panic!("expected ContainerReference env, got Local")
+                }
+            }
+            assert_eq!(*status, ShellCallStatus::Completed);
+        }
+        other => panic!("expected ResponseOutputItem::ShellCall, got {other:?}"),
+    }
+    assert_eq!(serde_json::to_value(&item).expect("serialize"), payload);
+}
+
+#[test]
+fn shell_call_output_response_side_round_trip() {
+    // Mirror of shell_call_output_input_item_round_trips_spec_shape but
+    // deserialized into [`ResponseOutputItem`] to prove the output union
+    // accepts the same wire shape. The response-side variant requires `id`,
+    // `max_output_length`, and `status` per spec L233.
+    let payload = json!({
+        "type": "shell_call_output",
+        "id": "sco_10",
+        "call_id": "call_shell_10",
+        "output": [
+            {
+                "outcome": {"type": "exit", "exit_code": 2},
+                "stderr": "boom",
+                "stdout": ""
+            }
+        ],
+        "max_output_length": 65536,
+        "status": "incomplete"
+    });
+
+    let item: ResponseOutputItem = serde_json::from_value(payload.clone())
+        .expect("response-side shell_call_output should deserialize");
+    match &item {
+        ResponseOutputItem::ShellCallOutput {
+            id,
+            call_id,
+            output,
+            status,
+            max_output_length,
+            created_by,
+        } => {
+            assert_eq!(id, "sco_10");
+            assert_eq!(call_id, "call_shell_10");
+            assert_eq!(*status, ShellCallStatus::Incomplete);
+            assert_eq!(*max_output_length, Some(65536));
+            assert_eq!(output.len(), 1);
+            match &output[0].outcome {
+                ShellOutcome::Exit(e) => assert_eq!(e.exit_code, 2),
+                ShellOutcome::Timeout => panic!("expected Exit outcome, got Timeout"),
+            }
+            assert!(created_by.is_none());
+        }
+        other => panic!("expected ResponseOutputItem::ShellCallOutput, got {other:?}"),
+    }
+    assert_eq!(serde_json::to_value(&item).expect("serialize"), payload);
+}
+
+#[test]
+fn shell_call_with_created_by_round_trip() {
+    // OpenAI SDK v2.8.1 `ResponseFunctionShellToolCall` carries an optional
+    // `created_by: Optional[str]` provenance tag (see
+    // `response_function_shell_tool_call.py`). Items returned by the
+    // platform populate it; client-authored calls omit it. This fixture
+    // locks both the deserialize-with-value and serialize-preserves-value
+    // paths on the input side.
+    let payload = json!({
+        "type": "shell_call",
+        "id": "sc_cb",
+        "call_id": "call_shell_cb",
+        "action": {"commands": ["ls"]},
+        "status": "completed",
+        "created_by": "user_abc"
+    });
+    let item: ResponseInputOutputItem = serde_json::from_value(payload.clone())
+        .expect("shell_call w/ created_by should deserialize");
+    match &item {
+        ResponseInputOutputItem::ShellCall { created_by, .. } => {
+            assert_eq!(created_by.as_deref(), Some("user_abc"));
+        }
+        other => panic!("expected ShellCall, got {other:?}"),
+    }
+    assert_eq!(serde_json::to_value(&item).expect("serialize"), payload);
+}
+
+#[test]
+fn shell_call_output_with_created_by_round_trip() {
+    // OpenAI SDK v2.8.1 `ResponseFunctionShellToolCallOutput` carries an
+    // optional `created_by: Optional[str]` (see
+    // `response_function_shell_tool_call_output.py`). Mirror of the
+    // `shell_call_with_created_by_round_trip` fixture for the
+    // `shell_call_output` variant — different SDK type, same
+    // `Optional[str]` contract.
+    let payload = json!({
+        "type": "shell_call_output",
+        "id": "sco_cb",
+        "call_id": "call_shell_cb",
+        "output": [],
+        "status": "completed",
+        "created_by": "platform"
+    });
+    let item: ResponseInputOutputItem = serde_json::from_value(payload.clone())
+        .expect("shell_call_output w/ created_by should deserialize");
+    match &item {
+        ResponseInputOutputItem::ShellCallOutput { created_by, .. } => {
+            assert_eq!(created_by.as_deref(), Some("platform"));
+        }
+        other => panic!("expected ShellCallOutput, got {other:?}"),
+    }
+    assert_eq!(serde_json::to_value(&item).expect("serialize"), payload);
+}
+
+#[test]
+fn shell_call_output_without_max_output_length_round_trips_on_response_side() {
+    // OpenAI SDK v2.8.1 `ResponseFunctionShellToolCallOutput.max_output_length`
+    // is typed `Optional[int]`, so the platform may emit `shell_call_output`
+    // items where the originating `shell_call.action.max_output_length` was
+    // not set. This fixture proves the response-side union deserializes the
+    // SDK-optional shape without requiring `max_output_length` to be
+    // present on the wire.
+    let payload = json!({
+        "type": "shell_call_output",
+        "id": "sco_no_max",
+        "call_id": "call_shell_no_max",
+        "output": [],
+        "status": "completed"
+    });
+    let item: ResponseOutputItem = serde_json::from_value(payload.clone())
+        .expect("response-side shell_call_output w/o max_output_length should deserialize");
+    match &item {
+        ResponseOutputItem::ShellCallOutput {
+            max_output_length,
+            created_by,
+            ..
+        } => {
+            assert!(max_output_length.is_none());
+            assert!(created_by.is_none());
+        }
+        other => panic!("expected ResponseOutputItem::ShellCallOutput, got {other:?}"),
+    }
+    assert_eq!(serde_json::to_value(&item).expect("serialize"), payload);
+}
+
+#[test]
+fn shell_call_environment_rejects_container_auto() {
+    // Spec (openai-responses-api-spec.md §returns, L512-513): the call-side
+    // environment union only carries `local` / `container_reference` —
+    // `container_auto` is request-only. A payload that tries to sneak it
+    // onto a call form must fail to deserialize rather than silently
+    // succeed, preserving the response-form restriction.
+    let payload = json!({
+        "type": "shell_call",
+        "call_id": "call_shell_3",
+        "action": {"commands": ["ls"]},
+        "environment": {
+            "type": "container_auto",
+            "file_ids": []
+        }
+    });
+    // Rejection must happen — the exact message varies depending on which
+    // internal serde branch fires first (outer `type`-tagged arm vs. the
+    // untagged SimpleInputMessage fallback), but no variant of
+    // [`ResponseInputOutputItem`] accepts `container_auto` on a
+    // `shell_call.environment` payload, so deserialization must fail.
+    assert!(
+        serde_json::from_value::<ResponseInputOutputItem>(payload).is_err(),
+        "container_auto must be rejected on shell_call.environment"
+    );
+}
+
+#[test]
+fn shell_call_environment_rejects_container_auto_on_response_side() {
+    // Mirror of `shell_call_environment_rejects_container_auto` targeting
+    // the response-side union. [`ResponseShellCallEnvironment`] is a
+    // separate enum from the input-side [`ShellCallEnvironment`], so the
+    // input-side rejection test doesn't prove the response-side variant
+    // also refuses `container_auto`. Spec §returns L512-513 constrains
+    // the response-side shell_call environment to `local` /
+    // `container_reference` only.
+    let payload = json!({
+        "type": "shell_call",
+        "id": "sc_bad",
+        "call_id": "call_shell_bad",
+        "action": {"commands": ["ls"]},
+        "environment": {
+            "type": "container_auto",
+            "file_ids": []
+        },
+        "status": "completed"
+    });
+    assert!(
+        serde_json::from_value::<ResponseOutputItem>(payload).is_err(),
+        "container_auto must be rejected on response-side shell_call.environment"
+    );
+}
+
+#[test]
+fn shell_call_environment_local_accepts_skills_on_input_side() {
+    // Spec (openai-responses-api-spec.md §ShellCall L228-230): the
+    // input-side `shell_call.environment.local` arm accepts the tool-side
+    // `LocalEnvironment { type: "local", skills? }` shape verbatim.
+    // Clients that replay prior input items with skill attachments must
+    // round-trip losslessly through [`ResponseInputOutputItem`].
+    let payload = json!({
+        "type": "shell_call",
+        "call_id": "call_shell_skills",
+        "action": {"commands": ["ls"]},
+        "environment": {
+            "type": "local",
+            "skills": [
+                {
+                    "type": "local",
+                    "name": "fmt",
+                    "description": "Run rustfmt",
+                    "path": "/usr/local/bin/rustfmt"
+                }
+            ]
+        }
+    });
+    let item: ResponseInputOutputItem = serde_json::from_value(payload.clone())
+        .expect("input-side shell_call with local skills should deserialize");
+    match &item {
+        ResponseInputOutputItem::ShellCall { environment, .. } => {
+            match environment.as_ref().expect("env present") {
+                ShellCallEnvironment::Local(local) => {
+                    let skills = local.skills.as_ref().expect("skills present");
+                    assert_eq!(skills.len(), 1);
+                }
+                ShellCallEnvironment::ContainerReference(_) => {
+                    panic!("expected Local env, got ContainerReference")
+                }
+            }
+        }
+        other => panic!("expected ShellCall, got {other:?}"),
+    }
+    assert_eq!(serde_json::to_value(&item).expect("serialize"), payload);
+}
+
+#[test]
+fn shell_call_environment_local_rejects_skills_on_response_side() {
+    // Spec (openai-responses-api-spec.md §returns L512-513): the
+    // response-side `local` environment is `ResponseLocalEnvironment {
+    // type: "local" }` — `skills` is an input/tool-side attachment and is
+    // not echoed back on the resolved call. `deny_unknown_fields` on
+    // [`ResponseLocalShellEnvironment`] (carried by
+    // [`ResponseShellCallEnvironment::Local`]) must reject a payload that
+    // tries to carry `skills` across the boundary so the input-only field
+    // cannot silently round-trip on the response union.
+    let payload = json!({
+        "type": "shell_call",
+        "id": "sc_reject",
+        "call_id": "call_shell_reject",
+        "action": {"commands": ["ls"]},
+        "environment": {
+            "type": "local",
+            "skills": []
+        },
+        "status": "completed"
+    });
+    assert!(
+        serde_json::from_value::<ResponseOutputItem>(payload).is_err(),
+        "skills must be rejected on response-side shell_call.environment.local"
+    );
+}
+
+#[test]
+fn shell_call_output_validation_accepts_empty_output_for_replay() {
+    // Spec (openai-responses-api-spec.md §ShellCallOutput L233-238):
+    // `output: array of ResponseFunctionShellCallOutputContent`. The array
+    // is legitimately empty on replay-only fixtures where the platform
+    // surfaced an outcome without per-chunk stdout/stderr — request-level
+    // validation (`validate_input_item`) keeps empty arrays valid. This
+    // regression fixture locks that relaxed shape in so it cannot be
+    // accidentally tightened, matching the pattern used for apply_patch
+    // replay acceptance elsewhere in this file.
+    let request: ResponsesRequest = serde_json::from_value(json!({
+        "model": "gpt-5.4",
+        "input": [
+            {"role": "user", "content": "hi"},
+            {
+                "type": "shell_call_output",
+                "call_id": "call_shell_empty",
+                "output": []
+            }
+        ]
+    }))
+    .expect("request with empty shell_call_output.output should deserialize");
+    assert!(
+        validator::Validate::validate(&request).is_ok(),
+        "empty shell_call_output.output must remain valid for lossless replay"
+    );
+}
