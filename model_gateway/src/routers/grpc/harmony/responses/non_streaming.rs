@@ -257,7 +257,9 @@ async fn execute_with_mcp_loop(
                     return Ok(response);
                 }
 
-                // Execute MCP tools (if any)
+                // Execute MCP tools (if any). Caller-declared hosted-tool overrides
+                // live on `original_tools` (pre-MCP-injection), so we thread those
+                // into dispatch — `execute_mcp_tools` merges per-kind.
                 let mcp_results = if mcp_tool_calls.is_empty() {
                     Vec::new()
                 } else {
@@ -266,6 +268,7 @@ async fn execute_with_mcp_loop(
                         &mcp_tool_calls,
                         &mut mcp_tracking,
                         &current_request.model,
+                        original_tools.as_deref().unwrap_or(&[]),
                     )
                     .await?
                 };
