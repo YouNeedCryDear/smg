@@ -44,6 +44,11 @@ pub fn format_from_type_str(type_str: &str) -> Option<ResponseFormat> {
     }
 }
 
+/// True iff `item_type` maps to a non-Passthrough `ResponseFormat`.
+pub fn is_hosted_tool_call_item_type(item_type: &str) -> bool {
+    format_from_type_str(item_type).is_some_and(|f| f.to_builtin_tool_type().is_some())
+}
+
 pub const fn descriptor(format: ResponseFormat) -> FormatDescriptor {
     match format {
         ResponseFormat::WebSearchCall => FormatDescriptor {
