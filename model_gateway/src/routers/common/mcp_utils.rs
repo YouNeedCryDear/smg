@@ -11,7 +11,8 @@ use smg_mcp::{BuiltinToolType, McpOrchestrator, McpServerBinding, McpServerConfi
 use tracing::{debug, warn};
 
 use crate::routers::common::openai_bridge::{
-    apply_hosted_tool_overrides, extract_hosted_tool_overrides, FormatRegistry, ResponseFormat,
+    self, apply_hosted_tool_overrides, extract_hosted_tool_overrides, FormatRegistry,
+    ResponseFormat,
 };
 
 /// Default maximum tool loop iterations (safety limit).
@@ -119,15 +120,14 @@ pub async fn connect_mcp_servers(
 
             let server_key = McpOrchestrator::server_key(&server_config);
 
-            match mcp_orchestrator
-                .connect_dynamic_server(server_config.clone())
-                .await
+            match openai_bridge::connect_dynamic_server(
+                mcp_orchestrator,
+                format_registry,
+                server_config,
+            )
+            .await
             {
                 Ok(_) => {
-                    // Mirror the orchestrator's tool-config + builtin-format passes
-                    // into the gateway-side FormatRegistry. See
-                    // routers/common/openai_bridge/format_registry.rs.
-                    format_registry.populate_from_server_config(&server_config);
                     if !mcp_servers.iter().any(|b| b.server_key == server_key) {
                         mcp_servers.push(McpServerBinding {
                             label: input.label.clone(),
@@ -194,11 +194,8 @@ pub fn collect_builtin_routing(
     let mut routing = Vec::new();
 
     for tool in tools {
-        let builtin_type = match tool {
-            ResponseTool::WebSearchPreview(_) => BuiltinToolType::WebSearchPreview,
-            ResponseTool::CodeInterpreter(_) => BuiltinToolType::CodeInterpreter,
-            ResponseTool::ImageGeneration(_) => BuiltinToolType::ImageGeneration,
-            _ => continue,
+        let Some(builtin_type) = openai_bridge::builtin_type_for_response_tool(tool) else {
+            continue;
         };
 
         if let Some((server_name, tool_name)) = mcp_orchestrator.find_builtin_server(builtin_type) {
@@ -238,12 +235,7 @@ pub fn collect_builtin_routing(
 pub fn extract_builtin_types(tools: &[ResponseTool]) -> Vec<BuiltinToolType> {
     tools
         .iter()
-        .filter_map(|t| match t {
-            ResponseTool::WebSearchPreview(_) => Some(BuiltinToolType::WebSearchPreview),
-            ResponseTool::CodeInterpreter(_) => Some(BuiltinToolType::CodeInterpreter),
-            ResponseTool::ImageGeneration(_) => Some(BuiltinToolType::ImageGeneration),
-            _ => None,
-        })
+        .filter_map(openai_bridge::builtin_type_for_response_tool)
         .collect()
 }
 
